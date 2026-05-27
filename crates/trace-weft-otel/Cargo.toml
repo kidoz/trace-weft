@@ -1,0 +1,16 @@
+[package]
+name = "trace-weft-otel"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trace-weft-core = { path = "../trace-weft-core" }
+tokio.workspace = true
+anyhow.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["rt-tokio"] }
+opentelemetry-otlp.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+async-trait = "0.1"
+opentelemetry-semantic-conventions = "0.14"
