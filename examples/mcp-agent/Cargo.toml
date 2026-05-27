@@ -1,0 +1,11 @@
+[package]
+name = "mcp-agent"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+trace-weft = { path = "../../crates/trace-weft" }
+trace-weft-mcp = { path = "../../crates/trace-weft-mcp" }
+tokio = { workspace = true, features = ["full"] }
+anyhow.workspace = true
