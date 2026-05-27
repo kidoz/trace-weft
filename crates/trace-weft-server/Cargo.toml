@@ -1,0 +1,21 @@
+[package]
+name = "trace-weft-server"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trace-weft-core = { path = "../trace-weft-core" }
+trace-weft = { path = "../trace-weft" }
+trace-weft-recorder = { path = "../trace-weft-recorder" }
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+axum.workspace = true
+tower-http.workspace = true
+sqlx = { version = "0.7", features = ["sqlite", "postgres", "runtime-tokio-native-tls"] }
+async-trait = "0.1"
+clickhouse = "0.11"
+object_store = { version = "0.10", features = ["aws"] }
+bytes = "1.5"
