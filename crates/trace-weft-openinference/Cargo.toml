@@ -1,0 +1,9 @@
+[package]
+name = "trace-weft-openinference"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trace-weft-core = { path = "../trace-weft-core" }
+serde_json.workspace = true
+opentelemetry.workspace = true
