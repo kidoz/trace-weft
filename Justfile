@@ -61,8 +61,8 @@ build-web:
 
 # Run the Desktop App in Development Mode
 dev-desktop:
-    cd apps/desktop/src-tauri && cargo run
+    cd apps/desktop/src-tauri && cargo tauri dev
 
 # Build the Desktop App for production
 build-desktop:
-    cd apps/desktop/src-tauri && cargo build --release
+    cd apps/desktop/src-tauri && cargo tauri build
