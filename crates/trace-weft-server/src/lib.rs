@@ -37,7 +37,10 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
         let url = if db_url.starts_with("sqlite://") {
             db_url.to_string()
         } else {
-            format!("sqlite://{}?mode=ro", db_url)
+            if let Some(parent) = std::path::Path::new(db_url).parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            format!("sqlite://{}?mode=rwc", db_url)
         };
         let sq_pool = SqlitePoolOptions::new().connect(&url).await?;
         DbPool::Sqlite(sq_pool)
