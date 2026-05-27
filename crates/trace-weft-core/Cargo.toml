@@ -1,0 +1,13 @@
+[package]
+name = "trace-weft-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+async-trait = "0.1"
+regex = "1.12.3"
+anyhow.workspace = true
