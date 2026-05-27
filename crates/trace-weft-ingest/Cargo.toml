@@ -1,0 +1,15 @@
+[package]
+name = "trace-weft-ingest"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trace-weft-core = { path = "../trace-weft-core" }
+trace-weft-recorder = { path = "../trace-weft-recorder" }
+tokio.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true
