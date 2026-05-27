@@ -1,0 +1,17 @@
+[package]
+name = "trace-weft-cli"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "trace-weft"
+path = "src/main.rs"
+
+[dependencies]
+trace-weft-server = { path = "../trace-weft-server" }
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
