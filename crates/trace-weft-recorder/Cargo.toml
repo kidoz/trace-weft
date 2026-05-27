@@ -1,0 +1,16 @@
+[package]
+name = "trace-weft-recorder"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trace-weft-core = { path = "../trace-weft-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+sqlx = { version = "0.7", features = ["sqlite", "postgres", "runtime-tokio-native-tls"] }
+async-trait = "0.1"
