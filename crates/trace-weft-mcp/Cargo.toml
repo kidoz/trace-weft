@@ -1,0 +1,13 @@
+[package]
+name = "trace-weft-mcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+trace-weft-core = { path = "../trace-weft-core" }
+trace-weft = { path = "../trace-weft" }
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
