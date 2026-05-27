@@ -1,0 +1,28 @@
+{
+  "build": {
+    "beforeDevCommand": "npm run dev --prefix ../web",
+    "beforeBuildCommand": "npm run build --prefix ../web",
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "TraceWeft",
+        "width": 1200,
+        "height": 800,
+        "minWidth": 800,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "identifier": "com.traceweft.dev",
+  "version": "0.1.0",
+  "productName": "TraceWeft",
+  "bundle": {
+    "icon": ["icons/icon.png"]
+  }
+}
