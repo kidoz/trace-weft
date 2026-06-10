@@ -7,3 +7,6 @@ edition.workspace = true
 trace-weft-core = { path = "../trace-weft-core" }
 serde_json.workspace = true
 opentelemetry.workspace = true
+
+[dev-dependencies]
+trace-weft-core = { path = "../trace-weft-core", features = ["test-util"] }

@@ -49,3 +49,83 @@ pub fn map_to_openinference_attributes(record: &SpanRecord) -> Vec<KeyValue> {
 
     attributes
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::Value;
+    use trace_weft_core::test_util::{sample_span_full, sample_span_minimal};
+
+    fn attr_value<'a>(attrs: &'a [KeyValue], key: &str) -> Option<&'a Value> {
+        attrs
+            .iter()
+            .find(|kv| kv.key.as_str() == key)
+            .map(|kv| &kv.value)
+    }
+
+    #[test]
+    fn maps_span_kinds_to_openinference_names() {
+        let cases = [
+            (TraceWeftSpanKind::LlmCall, "LLM"),
+            (TraceWeftSpanKind::Tool, "TOOL"),
+            (TraceWeftSpanKind::Agent, "AGENT"),
+            (TraceWeftSpanKind::Retrieval, "RETRIEVER"),
+            (TraceWeftSpanKind::Embedding, "EMBEDDING"),
+            (TraceWeftSpanKind::Rerank, "RERANKER"),
+            (TraceWeftSpanKind::Evaluator, "EVALUATOR"),
+            (TraceWeftSpanKind::Guardrail, "GUARDRAIL"),
+            // Kinds without a direct OpenInference equivalent fall back to CHAIN.
+            (TraceWeftSpanKind::Workflow, "CHAIN"),
+            (TraceWeftSpanKind::Planner, "CHAIN"),
+        ];
+        for (kind, expected) in cases {
+            let mut span = sample_span_minimal();
+            span.span_kind = kind;
+            let attrs = map_to_openinference_attributes(&span);
+            assert_eq!(
+                attr_value(&attrs, "openinference.span.kind"),
+                Some(&Value::from(expected)),
+                "kind {kind:?} should map to {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn maps_token_counts_including_total() {
+        let attrs = map_to_openinference_attributes(&sample_span_full());
+        assert_eq!(
+            attr_value(&attrs, "llm.token_count.prompt"),
+            Some(&Value::I64(100))
+        );
+        assert_eq!(
+            attr_value(&attrs, "llm.token_count.completion"),
+            Some(&Value::I64(50))
+        );
+        assert_eq!(
+            attr_value(&attrs, "llm.token_count.total"),
+            Some(&Value::I64(150))
+        );
+    }
+
+    #[test]
+    fn maps_model_and_tool_names() {
+        let attrs = map_to_openinference_attributes(&sample_span_full());
+        assert_eq!(
+            attr_value(&attrs, "llm.model_name"),
+            Some(&Value::from("gpt-4.1"))
+        );
+        assert_eq!(
+            attr_value(&attrs, "tool.name"),
+            Some(&Value::from("kb_search"))
+        );
+    }
+
+    #[test]
+    fn omits_llm_attributes_for_bare_spans() {
+        let attrs = map_to_openinference_attributes(&sample_span_minimal());
+        assert!(attr_value(&attrs, "llm.token_count.prompt").is_none());
+        assert!(attr_value(&attrs, "llm.model_name").is_none());
+        assert!(attr_value(&attrs, "tool.name").is_none());
+        assert_eq!(attrs.len(), 1, "only openinference.span.kind expected");
+    }
+}

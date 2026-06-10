@@ -3,6 +3,9 @@ use std::collections::HashMap;
 
 pub mod redactor;
 
+#[cfg(any(test, feature = "test-util"))]
+pub mod test_util;
+
 // --- IDs ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -227,57 +230,158 @@ pub trait BlobStore: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use super::test_util::{
+        sample_blob_ref, sample_checkpoint, sample_span_full, sample_span_minimal,
+    };
     use super::*;
-    use uuid::Uuid;
+    use serde_json::json;
+
+    fn roundtrip<T>(value: &T) -> T
+    where
+        T: serde::Serialize + serde::de::DeserializeOwned,
+    {
+        let json = serde_json::to_string(value).unwrap();
+        serde_json::from_str(&json).unwrap()
+    }
 
     #[test]
-    fn test_json_roundtrip() {
-        let span = SpanRecord {
-            trace_id: TraceId(Uuid::now_v7()),
-            span_id: SpanId(Uuid::now_v7()),
-            parent_span_id: None,
-            run_id: RunId(Uuid::now_v7()),
-            session_id: None,
-            user_id_hash: None,
-            span_kind: TraceWeftSpanKind::LlmCall,
-            name: "draft_answer".into(),
-            start_time: 1715000000000,
-            end_time: Some(1715000005000),
-            status: SpanStatus::Ok,
-            status_message: None,
-            error_type: None,
-            error_message_redacted: None,
-            attributes: HashMap::new(),
-            otel_attributes: HashMap::new(),
-            openinference_attributes: HashMap::new(),
-            memory_state: None,
-            input_ref: None,
-            output_ref: None,
-            prompt_template_id: None,
-            prompt_version: Some("v1".into()),
-            model_provider: Some("openai".into()),
-            model_name: Some("gpt-4-turbo".into()),
-            tool_name: None,
-            tool_schema_hash: None,
-            retrieval_query_hash: None,
-            retrieved_document_refs: vec![],
-            token_usage: Some(TokenUsage {
-                input: 100,
-                output: 50,
-                reasoning: None,
-                breakdown: HashMap::new(),
-            }),
-            cost_estimate: None,
-            latency_ms: Some(5000),
-            retry_count: None,
-            cache_hit: Some(false),
-            redaction_policy: CapturePolicy::RedactedPreview,
-            schema_version: "1.0".into(),
+    fn span_record_full_roundtrip() {
+        let span = sample_span_full();
+        assert_eq!(roundtrip(&span), span);
+    }
+
+    #[test]
+    fn span_record_minimal_roundtrip() {
+        let span = sample_span_minimal();
+        assert_eq!(roundtrip(&span), span);
+    }
+
+    #[test]
+    fn trace_record_roundtrip() {
+        let trace = TraceRecord {
+            trace_id: sample_span_full().trace_id,
+            run_id: sample_span_full().run_id,
+            spans: vec![sample_span_full(), sample_span_minimal()],
         };
+        assert_eq!(roundtrip(&trace), trace);
+    }
 
-        let json = serde_json::to_string(&span).unwrap();
-        let parsed: SpanRecord = serde_json::from_str(&json).unwrap();
+    #[test]
+    fn checkpoint_record_roundtrip() {
+        let checkpoint = sample_checkpoint();
+        assert_eq!(roundtrip(&checkpoint), checkpoint);
+    }
 
-        assert_eq!(span, parsed);
+    #[test]
+    fn blob_ref_roundtrip() {
+        let blob = sample_blob_ref(7);
+        assert_eq!(roundtrip(&blob), blob);
+    }
+
+    #[test]
+    fn ids_serialize_as_plain_uuid_strings() {
+        let id = TraceId(uuid::Uuid::from_u128(1));
+        assert_eq!(
+            serde_json::to_value(id).unwrap(),
+            json!("00000000-0000-0000-0000-000000000001")
+        );
+    }
+
+    #[test]
+    fn blob_hash_serializes_as_plain_string() {
+        let hash = BlobHash("sha256:abc".into());
+        assert_eq!(serde_json::to_value(&hash).unwrap(), json!("sha256:abc"));
+    }
+
+    #[test]
+    fn enums_use_snake_case_wire_format() {
+        assert_eq!(
+            serde_json::to_value(TraceWeftSpanKind::LlmCall).unwrap(),
+            json!("llm_call")
+        );
+        assert_eq!(
+            serde_json::to_value(SpanStatus::PendingApproval).unwrap(),
+            json!("pending_approval")
+        );
+        assert_eq!(
+            serde_json::to_value(CapturePolicy::FullContentLocalOnly).unwrap(),
+            json!("full_content_local_only")
+        );
+        assert_eq!(
+            serde_json::to_value(RedactionStatus::RedactionFailed).unwrap(),
+            json!("redaction_failed")
+        );
+        assert_eq!(
+            serde_json::to_value(ReplayMode::BlockedSideEffect).unwrap(),
+            json!("blocked_side_effect")
+        );
+        assert_eq!(
+            serde_json::to_value(SideEffectPolicy::PaymentOrSensitiveAction).unwrap(),
+            json!("payment_or_sensitive_action")
+        );
+    }
+
+    #[test]
+    fn all_span_kinds_roundtrip() {
+        use TraceWeftSpanKind::*;
+        for kind in [
+            Workflow, Agent, LlmCall, Embedding, Retrieval, Rerank, Tool, Memory, State, Planner,
+            Router, Guardrail, Evaluator, Handoff, Checkpoint, Replay, Error,
+        ] {
+            assert_eq!(roundtrip(&kind), kind);
+        }
+    }
+
+    #[test]
+    fn empty_collections_are_omitted_from_json() {
+        let value = serde_json::to_value(sample_span_minimal()).unwrap();
+        let object = value.as_object().unwrap();
+        for key in [
+            "attributes",
+            "otel_attributes",
+            "openinference_attributes",
+            "retrieved_document_refs",
+        ] {
+            assert!(
+                !object.contains_key(key),
+                "{key} should be omitted when empty"
+            );
+        }
+    }
+
+    #[test]
+    fn token_usage_empty_breakdown_is_omitted() {
+        let usage = TokenUsage {
+            input: 1,
+            output: 2,
+            reasoning: None,
+            breakdown: HashMap::new(),
+        };
+        let value = serde_json::to_value(&usage).unwrap();
+        assert!(!value.as_object().unwrap().contains_key("breakdown"));
+        assert_eq!(roundtrip(&usage), usage);
+    }
+
+    #[test]
+    fn span_record_deserializes_from_minimal_wire_payload() {
+        // A producer that omits every optional field must still parse.
+        let payload = json!({
+            "trace_id": "00000000-0000-0000-0000-000000000001",
+            "span_id": "00000000-0000-0000-0000-000000000002",
+            "run_id": "00000000-0000-0000-0000-000000000004",
+            "span_kind": "tool",
+            "name": "kb_search",
+            "start_time": 1_715_000_000_000u64,
+            "status": "in_progress",
+            "redaction_policy": "metadata_only",
+            "schema_version": "1.0"
+        });
+        let parsed: SpanRecord = serde_json::from_value(payload).unwrap();
+        assert_eq!(parsed.span_kind, TraceWeftSpanKind::Tool);
+        assert_eq!(parsed.status, SpanStatus::InProgress);
+        assert!(parsed.parent_span_id.is_none());
+        assert!(parsed.attributes.is_empty());
+        assert!(parsed.retrieved_document_refs.is_empty());
+        assert!(parsed.token_usage.is_none());
     }
 }

@@ -69,3 +69,77 @@ impl Redactor for RegexRedactor {
 }
 
 pub type ArcRedactor = Arc<dyn Redactor>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn redactor() -> RegexRedactor {
+        RegexRedactor::with_default_patterns()
+    }
+
+    #[test]
+    fn redacts_email_addresses() {
+        let result = redactor().redact("contact me at jane.doe+test@example.co.uk please");
+        assert_eq!(result.redacted_text, "contact me at [REDACTED] please");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn redacts_api_keys() {
+        let key = format!("sk-{}", "a1B2".repeat(10));
+        let result = redactor().redact(&format!("key={key}"));
+        assert_eq!(result.redacted_text, "key=[REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn keeps_short_sk_prefixed_words() {
+        let result = redactor().redact("see sk-short for details");
+        assert_eq!(result.redacted_text, "see sk-short for details");
+        assert_eq!(result.status, RedactionStatus::Unredacted);
+    }
+
+    #[test]
+    fn redacts_bearer_tokens() {
+        let result = redactor().redact("Authorization: Bearer abc.DEF-123~xyz");
+        assert_eq!(result.redacted_text, "Authorization: [REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn redacts_multiple_findings_in_one_text() {
+        let result = redactor().redact("a@b.com and Bearer tok123");
+        assert_eq!(result.redacted_text, "[REDACTED] and [REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn leaves_clean_text_untouched() {
+        let result = redactor().redact("the quick brown fox");
+        assert_eq!(result.redacted_text, "the quick brown fox");
+        assert_eq!(result.status, RedactionStatus::Unredacted);
+    }
+
+    #[test]
+    fn empty_redactor_passes_content_through() {
+        let result = RegexRedactor::new().redact("a@b.com");
+        assert_eq!(result.redacted_text, "a@b.com");
+        assert_eq!(result.status, RedactionStatus::Unredacted);
+    }
+
+    #[test]
+    fn supports_user_configured_patterns() {
+        let mut redactor = RegexRedactor::new();
+        redactor.add_pattern(Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").unwrap());
+        let result = redactor.redact("ssn: 123-45-6789");
+        assert_eq!(result.redacted_text, "ssn: [REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn default_uses_builtin_patterns() {
+        let result = RegexRedactor::default().redact("a@b.com");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+}

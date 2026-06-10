@@ -11,3 +11,7 @@ thiserror.workspace = true
 async-trait = "0.1"
 regex = "1.12.3"
 anyhow.workspace = true
+
+[features]
+# Deterministic record fixtures for tests in dependent crates.
+test-util = []

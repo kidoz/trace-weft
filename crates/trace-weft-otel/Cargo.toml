@@ -14,3 +14,6 @@ serde_json.workspace = true
 tracing.workspace = true
 async-trait = "0.1"
 opentelemetry-semantic-conventions = "0.14"
+
+[dev-dependencies]
+trace-weft-core = { path = "../trace-weft-core", features = ["test-util"] }
