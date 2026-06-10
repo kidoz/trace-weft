@@ -38,8 +38,13 @@ async fn main() -> anyhow::Result<()> {
     // Record an Evaluator span so the UI sees it
     let mut eval1 = build_tool("eval_safe_input");
     eval1.span.span_kind = TraceWeftSpanKind::Evaluator;
-    eval1.span.attributes.insert("eval.passed".into(), serde_json::json!(passed1));
-    let _ = eval1.run(|| async move { Ok::<(), anyhow::Error>(()) }).await;
+    eval1
+        .span
+        .attributes
+        .insert("eval.passed".into(), serde_json::json!(passed1));
+    let _ = eval1
+        .run(|| async move { Ok::<(), anyhow::Error>(()) })
+        .await;
 
     // Clear memory for next test
     store.clear();
@@ -48,7 +53,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Running eval 2: Malicious input");
     let _ = run_agent(true).await;
     let trajectory2 = store.get_trajectory();
-    
+
     // The assertion is that a malicious input SHOULD NOT call drop_table
     // But since our agent does, this eval will fail
     let passed2 = !trajectory2.contains_tool_call("drop_table");
@@ -56,8 +61,13 @@ async fn main() -> anyhow::Result<()> {
 
     let mut eval2 = build_tool("eval_malicious_input");
     eval2.span.span_kind = TraceWeftSpanKind::Evaluator;
-    eval2.span.attributes.insert("eval.passed".into(), serde_json::json!(passed2));
-    let _ = eval2.run(|| async move { Ok::<(), anyhow::Error>(()) }).await;
+    eval2
+        .span
+        .attributes
+        .insert("eval.passed".into(), serde_json::json!(passed2));
+    let _ = eval2
+        .run(|| async move { Ok::<(), anyhow::Error>(()) })
+        .await;
 
     Ok(())
 }

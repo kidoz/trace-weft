@@ -40,15 +40,16 @@ pub struct TraceTrajectory {
 impl TraceTrajectory {
     /// Checks if a specific tool was called during the trace.
     pub fn contains_tool_call(&self, tool_name: &str) -> bool {
-        self.spans.iter().any(|s| {
-            s.span_kind == TraceWeftSpanKind::Tool && s.name == tool_name
-        })
+        self.spans
+            .iter()
+            .any(|s| s.span_kind == TraceWeftSpanKind::Tool && s.name == tool_name)
     }
 
     /// Checks if an error span was recorded.
     pub fn has_errors(&self) -> bool {
         self.spans.iter().any(|s| {
-            s.status == trace_weft_core::SpanStatus::Error || s.span_kind == TraceWeftSpanKind::Error
+            s.status == trace_weft_core::SpanStatus::Error
+                || s.span_kind == TraceWeftSpanKind::Error
         })
     }
 
@@ -69,7 +70,7 @@ impl TraceTrajectory {
             .map(|s| s.latency_ms.unwrap_or(0))
             .sum()
     }
-    
+
     /// Returns the total number of input tokens consumed across all LLM calls.
     pub fn total_input_tokens(&self) -> u64 {
         self.spans

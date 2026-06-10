@@ -1,14 +1,14 @@
 pub mod builder;
-pub mod replay;
-pub mod hitl;
 pub mod eval;
+pub mod hitl;
+pub mod replay;
 
 pub use builder::{
     SpanBuilder, agent as build_agent, llm_call as build_llm_call, tool as build_tool,
 };
 
+pub use hitl::{HitlResponse, get_pending_approvals, register_approval, resolve_approval};
 pub use replay::{ReplayConfig, init_replay};
-pub use hitl::{register_approval, resolve_approval, get_pending_approvals, HitlResponse};
 
 pub use trace_weft_core::*;
 
