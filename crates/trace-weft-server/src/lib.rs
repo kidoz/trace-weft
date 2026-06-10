@@ -76,15 +76,7 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
         clickhouse,
     };
 
-    let app = Router::new()
-        .route("/api/traces", get(list_traces))
-        .route("/api/traces/:trace_id", get(get_trace))
-        .route("/api/evals", get(list_evals))
-        .route("/api/v1/batch", post(batch_ingest))
-        .route("/api/hitl/pending", get(get_pending_approvals))
-        .route("/api/hitl/resolve", post(resolve_approval))
-        .layer(CorsLayer::permissive())
-        .with_state(state);
+    let app = build_router(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Server listening on http://{}", addr);
@@ -93,6 +85,19 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
     axum::serve(listener, app).await?;
 
     Ok(())
+}
+
+/// Build the TraceWeft API router over the given application state.
+pub fn build_router(state: AppState) -> Router {
+    Router::new()
+        .route("/api/traces", get(list_traces))
+        .route("/api/traces/:trace_id", get(get_trace))
+        .route("/api/evals", get(list_evals))
+        .route("/api/v1/batch", post(batch_ingest))
+        .route("/api/hitl/pending", get(get_pending_approvals))
+        .route("/api/hitl/resolve", post(resolve_approval))
+        .layer(CorsLayer::permissive())
+        .with_state(state)
 }
 
 async fn validate_api_key(headers: &HeaderMap) -> Option<String> {
