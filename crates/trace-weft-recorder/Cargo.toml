@@ -12,5 +12,5 @@ anyhow.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-sqlx = { version = "0.7", features = ["sqlite", "postgres", "runtime-tokio-native-tls"] }
+sqlx.workspace = true
 async-trait = "0.1"
