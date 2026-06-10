@@ -19,3 +19,9 @@ async-trait = "0.1"
 clickhouse = "0.11"
 object_store = { version = "0.10", features = ["aws"] }
 bytes = "1.5"
+
+[dev-dependencies]
+tempfile = "3"
+tower = { version = "0.4", features = ["util"] }
+trace-weft-core = { path = "../trace-weft-core", features = ["test-util"] }
+uuid.workspace = true
