@@ -2,8 +2,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::path::PathBuf;
-use tokio::runtime::Runtime;
 use tauri::Manager;
+use tokio::runtime::Runtime;
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -12,7 +12,14 @@ fn main() {
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             // Determine paths for the local database and blobs using tauri's app_data_dir()
-            let app_data_dir = app.path().app_data_dir().unwrap_or_else(|_| PathBuf::from("./.trace-weft"));
+            // or an environment variable override for local development.
+            let app_data_dir = if let Ok(dev_dir) = std::env::var("TRACE_WEFT_DEV_DIR") {
+                PathBuf::from(dev_dir)
+            } else {
+                app.path()
+                    .app_data_dir()
+                    .unwrap_or_else(|_| PathBuf::from("./.trace-weft"))
+            };
             let db_path = app_data_dir.join("traces.sqlite");
             let blob_dir = app_data_dir.join("blobs");
             let port = 3000; // Same port our React app expects via proxy in dev, or directly in prod.
@@ -23,13 +30,14 @@ fn main() {
                 rt.block_on(async {
                     tracing::info!("Starting Embedded TraceWeft Server on port {}", port);
                     if let Err(e) =
-                        trace_weft_server::start_server(&db_path.to_string_lossy(), port, blob_dir).await
+                        trace_weft_server::start_server(&db_path.to_string_lossy(), port, blob_dir)
+                            .await
                     {
                         tracing::error!("Embedded server failed: {}", e);
                     }
                 });
             });
-            
+
             Ok(())
         })
         .run(tauri::generate_context!())

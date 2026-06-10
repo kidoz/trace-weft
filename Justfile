@@ -61,7 +61,7 @@ build-web:
 
 # Run the Desktop App in Development Mode
 dev-desktop:
-    cd apps/desktop/src-tauri && cargo tauri dev
+    cd apps/desktop/src-tauri && TRACE_WEFT_DEV_DIR=../../../.trace-weft cargo tauri dev
 
 # Build the Desktop App for production
 build-desktop:
