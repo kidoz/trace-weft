@@ -52,10 +52,8 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
         DbPool::Postgres(pg_pool) => Arc::new(storage::postgres::PostgresRecorder {
             pool: pg_pool.clone(),
         }),
-        DbPool::Sqlite(_sq_pool) => {
-            // For MVP local server, we just panic if we try to batch ingest into sqlite via the network
-            // In a real app we'd wrap SqliteRecorder here.
-            panic!("Batch ingest server requires Postgres. Use local SDK for SQLite.");
+        DbPool::Sqlite(sq_pool) => {
+            Arc::new(trace_weft_recorder::sqlite::SqliteRecorder::from_pool(sq_pool.clone()).await?)
         }
     };
 

@@ -18,6 +18,10 @@ impl SqliteRecorder {
 
         let pool = SqlitePoolOptions::new().connect(&db_url).await?;
 
+        Self::from_pool(pool).await
+    }
+
+    pub async fn from_pool(pool: SqlitePool) -> Result<Self> {
         // Run migrations
         sqlx::migrate!("./migrations").run(&pool).await?;
 
