@@ -128,12 +128,17 @@ async fn batch_ingest(
     // 1. Ingest metadata into Postgres
     for span in &spans {
         // In a real app, this should be a bulk insert
-        let _ = state.trace_store.record_span(span.clone()).await;
+        if let Err(e) = state.trace_store.record_span(span.clone()).await {
+            tracing::error!("Failed to record span: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
     }
 
     // 2. Stream to ClickHouse for analytics
     if let Some(ch) = &state.clickhouse {
-        let _ = ch.ingest_batch(&spans).await;
+        if let Err(e) = ch.ingest_batch(&spans).await {
+            tracing::warn!("Failed to stream to ClickHouse: {}", e);
+        }
     }
 
     Ok(StatusCode::ACCEPTED)
