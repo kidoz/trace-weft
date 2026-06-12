@@ -135,10 +135,10 @@ async fn batch_ingest(
     }
 
     // 2. Stream to ClickHouse for analytics
-    if let Some(ch) = &state.clickhouse {
-        if let Err(e) = ch.ingest_batch(&spans).await {
-            tracing::warn!("Failed to stream to ClickHouse: {}", e);
-        }
+    if let Some(ch) = &state.clickhouse
+        && let Err(e) = ch.ingest_batch(&spans).await
+    {
+        tracing::warn!("Failed to stream to ClickHouse: {}", e);
     }
 
     Ok(StatusCode::ACCEPTED)
