@@ -25,7 +25,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 axum = "0.7"
 tower-http = { version = "0.5", features = ["cors", "fs"] }
 clap = { version = "4.5", features = ["derive"] }
-sqlx = { version = "0.8", features = ["sqlite", "postgres", "runtime-tokio", "tls-native-tls"] }
+# Shared base: no driver/TLS so dependents pull only what they use. The
+# recorder adds `sqlite`; the server adds `postgres` + TLS.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio"] }
 opentelemetry = "0.22"
 opentelemetry_sdk = "0.22"
 opentelemetry-otlp = { version = "0.15", features = ["grpc-tonic", "trace"] }

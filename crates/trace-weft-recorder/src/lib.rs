@@ -6,7 +6,9 @@ use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use trace_weft_core::{CapturePolicy, EventRecord, SpanRecord};
 
+#[cfg(feature = "sqlite")]
 pub mod sqlite;
+#[cfg(feature = "sqlite")]
 use sqlite::SqliteRecorder;
 
 #[derive(Debug, Clone)]
@@ -31,6 +33,7 @@ pub trait TraceStore: Send + Sync {
 pub struct DualRecorder {
     jsonl_file: Arc<Mutex<tokio::fs::File>>,
     events_file: Arc<Mutex<tokio::fs::File>>,
+    #[cfg(feature = "sqlite")]
     sqlite: SqliteRecorder,
 }
 
@@ -56,11 +59,13 @@ impl DualRecorder {
             .open(&events_path)
             .await?;
 
+        #[cfg(feature = "sqlite")]
         let sqlite = SqliteRecorder::new(config.sqlite_db_path).await?;
 
         Ok(Self {
             jsonl_file: Arc::new(Mutex::new(file)),
             events_file: Arc::new(Mutex::new(events_file)),
+            #[cfg(feature = "sqlite")]
             sqlite,
         })
     }
@@ -79,12 +84,14 @@ async fn append_jsonl<T: serde::Serialize>(file: &Mutex<tokio::fs::File>, value:
 impl TraceStore for DualRecorder {
     async fn record_span(&self, span: SpanRecord) -> Result<()> {
         append_jsonl(&self.jsonl_file, &span).await?;
+        #[cfg(feature = "sqlite")]
         self.sqlite.record_span(span).await?;
         Ok(())
     }
 
     async fn record_event(&self, event: EventRecord) -> Result<()> {
         append_jsonl(&self.events_file, &event).await?;
+        #[cfg(feature = "sqlite")]
         self.sqlite.record_event(event).await?;
         Ok(())
     }

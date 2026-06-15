@@ -3,9 +3,15 @@ name = "trace-weft"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["sqlite"]
+# Forwarded to the recorder: a SQLite mirror alongside JSONL. Disable for a
+# pure local-JSONL SDK that pulls no `sqlx`.
+sqlite = ["trace-weft-recorder/sqlite"]
+
 [dependencies]
 trace-weft-core = { path = "../trace-weft-core" }
-trace-weft-recorder = { path = "../trace-weft-recorder" }
+trace-weft-recorder = { path = "../trace-weft-recorder", default-features = false }
 trace-weft-macros = { path = "../trace-weft-macros" }
 tokio.workspace = true
 anyhow.workspace = true
