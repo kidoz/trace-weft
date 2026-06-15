@@ -12,7 +12,8 @@ use std::time::Duration;
 use trace_weft::eval::{MemoryStore, TraceTrajectory};
 use trace_weft::{
     CostEstimate, HitlResponse, ReplayConfig, SpanRecord, SpanStatus, TokenUsage,
-    TraceWeftSpanKind, build_agent, build_llm_call, build_tool, init_replay, resolve_approval,
+    TraceWeftSpanKind, agent, build_agent, build_llm_call, build_tool, init_replay, llm_call,
+    resolve_approval, tool,
 };
 
 fn store() -> &'static MemoryStore {
@@ -116,6 +117,41 @@ async fn builder_setters_populate_rich_span_fields() {
         span.attributes.get("region"),
         Some(&serde_json::json!("us-east-1"))
     );
+}
+
+#[agent]
+async fn macro_agent_fn() -> Result<u8, String> {
+    Ok(1)
+}
+
+#[tool]
+async fn macro_tool_fn() -> Result<u8, String> {
+    Ok(2)
+}
+
+#[llm_call]
+async fn macro_llm_fn() -> Result<u8, String> {
+    Ok(3)
+}
+
+#[tokio::test]
+async fn macros_record_their_own_span_kind() {
+    store();
+    macro_agent_fn().await.unwrap();
+    macro_tool_fn().await.unwrap();
+    macro_llm_fn().await.unwrap();
+
+    let agent_spans = recorded_spans_named("macro_agent_fn");
+    assert_eq!(agent_spans.len(), 1);
+    assert_eq!(agent_spans[0].span_kind, TraceWeftSpanKind::Agent);
+
+    let tool_spans = recorded_spans_named("macro_tool_fn");
+    assert_eq!(tool_spans.len(), 1);
+    assert_eq!(tool_spans[0].span_kind, TraceWeftSpanKind::Tool);
+
+    let llm_spans = recorded_spans_named("macro_llm_fn");
+    assert_eq!(llm_spans.len(), 1);
+    assert_eq!(llm_spans[0].span_kind, TraceWeftSpanKind::LlmCall);
 }
 
 #[tokio::test]

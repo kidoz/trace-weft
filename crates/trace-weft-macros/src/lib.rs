@@ -1,9 +1,11 @@
 use proc_macro::TokenStream;
+use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
 use syn::{ItemFn, parse_macro_input};
 
-#[proc_macro_attribute]
-pub fn agent(_attr: TokenStream, item: TokenStream) -> TokenStream {
+/// Shared expansion for the instrumentation attributes. `kind` is the
+/// `TraceWeftSpanKind` variant ident to stamp on the recorded span.
+fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
     let name = &input.sig.ident;
     let block = &input.block;
@@ -19,7 +21,7 @@ pub fn agent(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 run_id: trace_weft::RunId(trace_weft::uuid::Uuid::now_v7()),
                 session_id: None,
                 user_id_hash: None,
-                span_kind: trace_weft::TraceWeftSpanKind::Agent,
+                span_kind: trace_weft::TraceWeftSpanKind::#kind,
                 name: stringify!(#name).to_string(),
                 start_time: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
                 end_time: None,
@@ -65,11 +67,16 @@ pub fn agent(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn tool(attr: TokenStream, item: TokenStream) -> TokenStream {
-    agent(attr, item)
+pub fn agent(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand(quote!(Agent), item)
 }
 
 #[proc_macro_attribute]
-pub fn llm_call(attr: TokenStream, item: TokenStream) -> TokenStream {
-    agent(attr, item)
+pub fn tool(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand(quote!(Tool), item)
+}
+
+#[proc_macro_attribute]
+pub fn llm_call(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    expand(quote!(LlmCall), item)
 }
