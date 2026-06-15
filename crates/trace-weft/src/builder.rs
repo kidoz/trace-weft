@@ -208,6 +208,33 @@ impl SpanBuilder {
 
         result
     }
+
+    /// Like [`run`](Self::run) but for closures that don't return `Result`. The
+    /// span always completes with `Ok` status. Replay mocking (which is keyed on
+    /// deserializing a mocked value) applies only to `run`, not here.
+    pub async fn run_infallible<F, Fut, T>(self, f: F) -> T
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = T>,
+    {
+        let mut span = self.span;
+        crate::context::link_to_ambient(&mut span);
+
+        let ctx = crate::context::SpanContext::of(&span);
+        let result = crate::context::scope_current(ctx, f()).await;
+
+        span.end_time = Some(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64,
+        );
+        span.latency_ms = Some(span.end_time.unwrap() - span.start_time);
+        span.status = SpanStatus::Ok;
+        crate::record_span(span).await;
+
+        result
+    }
 }
 
 pub fn llm_call(name: impl Into<String>) -> SpanBuilder {

@@ -184,6 +184,20 @@ async fn events_auto_link_to_ambient_span() {
 }
 
 #[tokio::test]
+async fn run_infallible_records_ok_span_for_non_result_closure() {
+    store();
+    let value = build_agent("e2e_infallible")
+        .run_infallible(|| async { 42u8 })
+        .await;
+    assert_eq!(value, 42);
+
+    let spans = recorded_spans_named("e2e_infallible");
+    assert_eq!(spans.len(), 1);
+    assert_eq!(spans[0].status, SpanStatus::Ok);
+    assert!(spans[0].latency_ms.is_some());
+}
+
+#[tokio::test]
 async fn event_without_ambient_context_is_unparented() {
     store();
     event(EventKind::Log, "e2e_orphan_event").record().await;
