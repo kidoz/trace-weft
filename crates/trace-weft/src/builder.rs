@@ -129,6 +129,7 @@ impl SpanBuilder {
     }
 
     pub async fn wait_for_approval(mut self) -> Result<crate::hitl::HitlResponse, String> {
+        crate::context::link_to_ambient(&mut self.span);
         let span_id = self.span.span_id.0.to_string();
         self.span.status = SpanStatus::PendingApproval;
 
@@ -165,6 +166,7 @@ impl SpanBuilder {
         T: serde::de::DeserializeOwned,
     {
         let mut span = self.span;
+        crate::context::link_to_ambient(&mut span);
 
         // Mock / Replay interception
         if let Some(mocked) = crate::replay::get_mocked_output(&span.name) {
@@ -180,7 +182,9 @@ impl SpanBuilder {
             }
         }
 
-        let result = f().await;
+        // Install this span as the ambient parent for spans created inside `f`.
+        let ctx = crate::context::SpanContext::of(&span);
+        let result = crate::context::scope_current(ctx, f()).await;
         span.end_time = Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

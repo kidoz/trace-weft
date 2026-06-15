@@ -52,7 +52,18 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
                 schema_version: "1.0".to_string(),
             };
 
-            let result = async move { #block }.await;
+            if let Some(__parent) = trace_weft::current_span_context() {
+                _span.trace_id = __parent.trace_id;
+                _span.run_id = __parent.run_id;
+                _span.parent_span_id = Some(__parent.span_id);
+            }
+
+            let __ctx = trace_weft::SpanContext {
+                trace_id: _span.trace_id,
+                run_id: _span.run_id,
+                span_id: _span.span_id,
+            };
+            let result = trace_weft::scope_current(__ctx, async move { #block }).await;
 
             _span.end_time = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
             _span.latency_ms = Some(_span.end_time.unwrap() - _span.start_time);

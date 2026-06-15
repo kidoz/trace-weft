@@ -135,6 +135,77 @@ async fn macro_llm_fn() -> Result<u8, String> {
 }
 
 #[tokio::test]
+async fn builder_children_auto_link_to_ambient_parent() {
+    store();
+    build_agent("e2e_ambient_root")
+        .run(|| async {
+            build_tool("e2e_ambient_child")
+                .run(|| async { Ok::<(), String>(()) })
+                .await
+        })
+        .await
+        .unwrap();
+
+    let root = &recorded_spans_named("e2e_ambient_root")[0];
+    let child = &recorded_spans_named("e2e_ambient_child")[0];
+
+    assert_eq!(child.parent_span_id, Some(root.span_id));
+    assert_eq!(child.trace_id, root.trace_id);
+    assert_eq!(child.run_id, root.run_id);
+    assert!(
+        root.parent_span_id.is_none(),
+        "root span must stay parentless"
+    );
+}
+
+#[tokio::test]
+async fn with_parent_overrides_ambient_context() {
+    store();
+    let explicit = build_agent("e2e_explicit_parent");
+    let trace_id = explicit.span.trace_id;
+    let run_id = explicit.span.run_id;
+    let parent_id = explicit.span.span_id;
+
+    build_agent("e2e_ambient_wrapper")
+        .run(|| async {
+            build_tool("e2e_explicit_child")
+                .with_parent(trace_id, run_id, parent_id)
+                .run(|| async { Ok::<(), String>(()) })
+                .await
+        })
+        .await
+        .unwrap();
+
+    let child = &recorded_spans_named("e2e_explicit_child")[0];
+    assert_eq!(child.parent_span_id, Some(parent_id));
+    assert_eq!(child.trace_id, trace_id);
+    assert_eq!(child.run_id, run_id);
+}
+
+#[agent]
+async fn macro_outer_fn() -> Result<(), String> {
+    macro_inner_fn().await
+}
+
+#[tool]
+async fn macro_inner_fn() -> Result<(), String> {
+    Ok(())
+}
+
+#[tokio::test]
+async fn macros_auto_link_to_ambient_parent() {
+    store();
+    macro_outer_fn().await.unwrap();
+
+    let outer = &recorded_spans_named("macro_outer_fn")[0];
+    let inner = &recorded_spans_named("macro_inner_fn")[0];
+
+    assert_eq!(inner.parent_span_id, Some(outer.span_id));
+    assert_eq!(inner.trace_id, outer.trace_id);
+    assert_eq!(inner.run_id, outer.run_id);
+}
+
+#[tokio::test]
 async fn macros_record_their_own_span_kind() {
     store();
     macro_agent_fn().await.unwrap();
