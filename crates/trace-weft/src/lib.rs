@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod capture;
 pub mod context;
 pub mod eval;
 pub mod hitl;
@@ -7,6 +8,7 @@ pub mod replay;
 pub use builder::{
     SpanBuilder, agent as build_agent, llm_call as build_llm_call, tool as build_tool,
 };
+pub use capture::{CaptureConfig, capture_enabled, capture_json, init_capture};
 pub use context::{SpanContext, current_span_context, scope_current};
 
 pub use hitl::{HitlResponse, get_pending_approvals, register_approval, resolve_approval};
@@ -17,7 +19,9 @@ pub use trace_weft_core::*;
 pub use trace_weft_macros::{agent, llm_call, tool};
 pub use trace_weft_recorder::{LocalConfig, LocalRecorder, TraceStore};
 
-// Re-export uuid so macros can use trace_weft::uuid::Uuid
+// Re-export uuid and serde_json so the macros can reference them through the
+// facade without the consumer depending on either crate directly.
+pub use serde_json;
 pub use uuid;
 
 use std::sync::Arc;
@@ -26,8 +30,18 @@ use tokio::sync::OnceCell;
 static RECORDER: OnceCell<Arc<dyn TraceStore>> = OnceCell::const_new();
 
 pub async fn init_local(config: LocalConfig) -> anyhow::Result<()> {
+    let policy = config.capture_content;
+    let blob_dir = config.blob_dir.clone();
+
     let recorder = LocalRecorder::new(config).await?;
-    init_custom(Arc::new(recorder))
+    init_custom(Arc::new(recorder))?;
+
+    init_capture(CaptureConfig {
+        policy,
+        blobs: Arc::new(capture::FsBlobStore::new(blob_dir)),
+        redactor: Arc::new(trace_weft_core::redactor::RegexRedactor::default()),
+        storage_backend: "local_fs".to_string(),
+    })
 }
 
 pub fn init_custom(store: Arc<dyn TraceStore>) -> anyhow::Result<()> {

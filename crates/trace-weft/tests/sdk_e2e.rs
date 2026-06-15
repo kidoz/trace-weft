@@ -9,11 +9,13 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use serde::Serialize;
+use trace_weft::capture::MemoryBlobStore;
 use trace_weft::eval::{MemoryStore, TraceTrajectory};
 use trace_weft::{
-    CostEstimate, HitlResponse, ReplayConfig, SpanRecord, SpanStatus, TokenUsage,
-    TraceWeftSpanKind, agent, build_agent, build_llm_call, build_tool, init_replay, llm_call,
-    resolve_approval, tool,
+    CaptureConfig, CapturePolicy, CostEstimate, HitlResponse, RedactionStatus, ReplayConfig,
+    SpanRecord, SpanStatus, TokenUsage, TraceWeftSpanKind, agent, build_agent, build_llm_call,
+    build_tool, init_capture, init_replay, llm_call, resolve_approval, tool,
 };
 
 fn store() -> &'static MemoryStore {
@@ -262,6 +264,60 @@ async fn macro_records_error_status_on_err() {
     assert_eq!(span.status, SpanStatus::Error);
     assert_eq!(span.error_message_redacted.as_deref(), Some("kaboom"));
     assert!(span.error_type.is_some());
+}
+
+#[derive(Serialize)]
+struct CapturePayload {
+    msg: String,
+}
+
+#[tool]
+async fn macro_capturing_fn(
+    payload: CapturePayload,
+    #[trace(skip)] _secret: String,
+) -> Result<String, String> {
+    Ok(format!("ok:{}", payload.msg))
+}
+
+#[tokio::test]
+async fn macros_capture_inputs_and_outputs_under_policy() {
+    store();
+    let blobs = MemoryBlobStore::new();
+    // Process-global, set once; this is the only test that enables capture.
+    init_capture(CaptureConfig {
+        policy: CapturePolicy::RedactedPreview,
+        blobs: std::sync::Arc::new(blobs.clone()),
+        redactor: std::sync::Arc::new(trace_weft::redactor::RegexRedactor::default()),
+        storage_backend: "memory".to_string(),
+    })
+    .expect("capture initialized once for the test process");
+
+    let out = macro_capturing_fn(
+        CapturePayload {
+            msg: "contact a@b.com".to_string(),
+        },
+        "topsecret".to_string(),
+    )
+    .await;
+    assert_eq!(out, Ok("ok:contact a@b.com".to_string()));
+
+    let spans = recorded_spans_named("macro_capturing_fn");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+
+    let input = span.input_ref.as_ref().expect("input captured");
+    let preview = input.preview_text_redacted.as_ref().unwrap();
+    assert!(preview.contains("payload"), "captured arg key present");
+    assert!(preview.contains("[REDACTED]"), "email redacted: {preview}");
+    assert!(!preview.contains("a@b.com"));
+    assert!(
+        !preview.contains("topsecret") && !preview.contains("_secret"),
+        "#[trace(skip)] arg must be excluded: {preview}"
+    );
+    assert_eq!(input.redaction_status, RedactionStatus::Redacted);
+
+    assert!(span.output_ref.is_some(), "output captured");
+    assert!(blobs.len() >= 2, "input and output blobs persisted");
 }
 
 #[tokio::test]

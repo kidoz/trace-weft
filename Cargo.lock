@@ -5505,6 +5505,7 @@ dependencies = [
  "lazy_static",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "trace-weft-core",
  "trace-weft-macros",
