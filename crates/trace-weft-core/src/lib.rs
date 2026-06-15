@@ -32,6 +32,28 @@ pub struct EventId(pub uuid::Uuid);
 #[serde(transparent)]
 pub struct BlobHash(pub String);
 
+/// Generate `new()` (fresh UUIDv7, time-ordered) and `Default` for a UUID
+/// newtype, so integrators don't have to depend on `uuid` directly.
+macro_rules! uuid_id {
+    ($($t:ident),+ $(,)?) => {
+        $(
+            impl $t {
+                /// Create a fresh, time-ordered identifier.
+                pub fn new() -> Self {
+                    Self(uuid::Uuid::now_v7())
+                }
+            }
+            impl Default for $t {
+                fn default() -> Self {
+                    Self::new()
+                }
+            }
+        )+
+    };
+}
+
+uuid_id!(TraceId, SpanId, RunId, SessionId, EventId);
+
 // --- Enums ---
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -355,6 +377,16 @@ mod tests {
             serde_json::to_value(id).unwrap(),
             json!("00000000-0000-0000-0000-000000000001")
         );
+    }
+
+    #[test]
+    fn id_constructors_make_distinct_v7_uuids() {
+        let a = TraceId::new();
+        let b = TraceId::new();
+        assert_ne!(a, b);
+        assert_eq!(a.0.get_version_num(), 7);
+        // Default delegates to new().
+        assert_ne!(SpanId::default(), SpanId::default());
     }
 
     #[test]
