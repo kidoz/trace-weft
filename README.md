@@ -7,71 +7,251 @@
 >
 > TraceWeft is local-first by default: run a Rust agent, open the local debugger, and inspect the full execution without sending prompts or tool outputs to a SaaS service.
 
-## Quickstart
+## Install
 
-Add `trace-weft` to your Cargo project:
+TraceWeft is not yet published to crates.io. Depend on it by git, pinning a
+revision for reproducible builds:
 
-```bash
-cargo add trace-weft
+```toml
+[dependencies]
+trace-weft = { git = "https://github.com/kidoz/trace-weft", rev = "<commit-sha>" }
 ```
 
-Install the CLI tool:
+The SDK is `sqlite`-by-default (a SQLite mirror alongside the JSONL stream). For
+a pure local-JSONL integrator that pulls no `sqlx`:
+
+```toml
+[dependencies]
+trace-weft = { git = "https://github.com/kidoz/trace-weft", rev = "<commit-sha>", default-features = false }
+```
+
+Requires Rust 1.85+ (edition 2024). Install the CLI from a checkout:
+
 ```bash
 cargo install --path crates/trace-weft-cli
 ```
 
-## Example Agent
+## Quickstart
 
-Instrument your Rust agent using procedural macros and manual builders:
+Initialize a recorder once at startup, then record spans. The recorder is a
+process-wide singleton; `init_local` wires the JSONL + SQLite recorder and the
+blob store for content capture.
 
 ```rust
-use trace_weft::{agent, init_local, LocalConfig, CapturePolicy};
-
-#[agent]
-async fn run_agent(input: String) -> anyhow::Result<String> {
-    // LLM operations, tool calls, etc.
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    Ok(format!("Agent processed: {}", input))
-}
+use trace_weft::{CapturePolicy, LocalConfig, init_local};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let config = LocalConfig {
+    init_local(LocalConfig {
         database_path: "./.trace-weft/traces.jsonl".into(),
         sqlite_db_path: "./.trace-weft/traces.sqlite".into(),
         blob_dir: "./.trace-weft/blobs".into(),
         capture_content: CapturePolicy::RedactedPreview,
-    };
-    
-    // Initialize the local background recorder
-    init_local(config).await?;
+    })
+    .await?;
 
-    let result = run_agent("hello world".into()).await?;
-    println!("Result: {}", result);
-
+    let answer = answer_question("why is the sky blue?".into()).await?;
+    println!("{answer}");
     Ok(())
+}
+```
+
+For tests and evaluation, swap in an in-memory store:
+
+```rust
+use std::sync::Arc;
+use trace_weft::{eval::MemoryStore, init_custom};
+
+let store = MemoryStore::new();
+init_custom(Arc::new(store.clone()))?;
+// ... run the agent, then assert over store.spans / store.events
+```
+
+To compile tracing in but disable it at runtime, use the no-op store:
+`init_custom(Arc::new(trace_weft::NullStore))`.
+
+## The builder — the primary API
+
+`SpanBuilder` is the capable, imperative recorder. Build a span, set the rich
+fields you have on hand, and wrap the work in `.run(...)`:
+
+```rust
+use trace_weft::{build_llm_call, CostEstimate, TokenUsage};
+
+let answer = build_llm_call("chat_completion")
+    .provider("anthropic")
+    .model("claude-fable-5")
+    .prompt_version("v3")
+    .token_usage(TokenUsage { input: 1200, output: 280, reasoning: None, breakdown: Default::default() })
+    .cost(CostEstimate { currency: "USD".into(), amount: 0.012 })
+    .cache_hit(false)
+    .attribute("temperature", serde_json::json!(0.2))
+    .run(|| async {
+        // the real call
+        client.complete(&prompt).await
+    })
+    .await?;
+```
+
+### What `.run` captures
+
+`SpanBuilder::run(f)` executes the closure and records:
+
+- **latency** — `start_time`/`end_time`/`latency_ms` around the closure;
+- **status** — `Ok` on `Ok(_)`, `Error` on `Err(e)` (with `error_type` from
+  `Debug` and a redacted message from `Display`);
+- **parenting** — auto-links to the ambient span context (see below) unless you
+  set one explicitly with `.with_parent(...)`;
+- **replay** — short-circuits to a mocked value when replay is configured.
+
+It does **not** capture inputs/outputs by itself — set `.input_ref()` /
+`.output_ref()` (or use the macros, which capture content for you). For
+closures that don't return `Result`, use `.run_infallible(|| async { ... })`.
+
+Builder setters cover the high-value `SpanRecord` fields: `.provider()`,
+`.model()`, `.prompt_version()`, `.tool_name()`, `.input_ref()`,
+`.output_ref()`, `.token_usage()`, `.cost()`, `.cache_hit()`,
+`.retrieval(query_hash, doc_refs)`, `.attribute(k, v)`, `.attributes(map)`.
+
+### Wrapping an `LlmClient` / `Tool`
+
+Wrap each trait method body in a builder call — the span kind matches the role:
+
+```rust
+#[async_trait::async_trait]
+impl LlmClient for AnthropicClient {
+    async fn complete(&self, req: Request) -> anyhow::Result<Response> {
+        trace_weft::build_llm_call("complete")
+            .provider("anthropic")
+            .model(&req.model)
+            .run(|| async { self.inner.complete(req).await })
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl Tool for KbSearch {
+    async fn call(&self, query: String) -> anyhow::Result<Vec<Doc>> {
+        trace_weft::build_tool("kb_search")
+            .tool_name("kb_search")
+            .run(|| async { self.search(query).await })
+            .await
+    }
+}
+```
+
+## Macros
+
+`#[agent]`, `#[tool]`, and `#[llm_call]` instrument a function (free function or
+`impl`/trait-impl method, including `&self`) and record a span with the matching
+`SpanKind`. They:
+
+- set the correct span kind and `Error` status when the body returns `Err`;
+- auto-link to the ambient span context, so nested instrumented calls form a
+  tree with no manual ID threading;
+- capture inputs/outputs under the configured `CapturePolicy` — every captured
+  argument must be `Serialize`; opt an argument out with `#[trace(skip)]`.
+
+```rust
+use trace_weft::{agent, llm_call, tool};
+
+struct ResearchAgent { client: AnthropicClient }
+
+impl ResearchAgent {
+    #[agent]
+    async fn run(&self, question: String) -> anyhow::Result<String> {
+        let plan = self.plan(&question).await?;       // child span, auto-parented
+        self.draft(plan).await
+    }
+
+    #[llm_call]
+    async fn plan(&self, question: &str, #[trace(skip)] api_key: &str) -> anyhow::Result<Plan> {
+        // `question` is captured to input_ref; `api_key` is skipped
+        self.client.plan(question, api_key).await
+    }
+}
+```
+
+Trait *definitions* carry no body, so annotate the concrete `impl`. The
+instrumented function must be `async`.
+
+### Capture policy
+
+`CapturePolicy` (set via `LocalConfig.capture_content`) governs content capture:
+
+| Policy | Behavior |
+| --- | --- |
+| `MetadataOnly` | No content captured (zero serialization cost). |
+| `RedactedPreview` | Redacts content, stores it, sets a redacted preview. |
+| `FullContentLocalOnly` / `FullContentExportable` | Stores full content. |
+
+Captured content is hashed, written to the blob store, and referenced from the
+span as `input_ref` / `output_ref`.
+
+## Events
+
+Spans have duration; **events** are point-in-time occurrences inside a span (a
+retry, a budget check, a guardrail trip, an REPL step). Build one with `event`
+and `.record()` it — it auto-links to the ambient span and gets a monotonic
+ordering `seq`:
+
+```rust
+use trace_weft::{event, EventKind};
+
+event(EventKind::Budget, "budget_check")
+    .attribute("tokens_remaining", serde_json::json!(1500))
+    .record()
+    .await;
+```
+
+`EventKind`: `LlmCall`, `ToolCall`, `ReplExec`, `Rpc`, `Budget`, `Guardrail`,
+`Retry`, `Termination`, `Log`, `Custom`.
+
+## Ambient context
+
+`SpanBuilder::run` and the macros install the current span as a task-local
+parent for the duration of the body. Child spans and events created inside it
+link automatically; `with_parent(trace_id, run_id, span_id)` is the explicit
+override for cross-task / cross-thread handoffs. Construct IDs with
+`TraceId::new()`, `SpanId::new()`, `RunId::new()` — no direct `uuid` dependency
+required.
+
+## Human-in-the-loop breakpoints
+
+`SpanBuilder::wait_for_approval()` records the span as `PendingApproval`, blocks
+until the UI/server approves or rejects, then resumes — a debugger-style
+breakpoint for risky actions, and a differentiator over plain OpenTelemetry:
+
+```rust
+match build_tool("transfer_funds").wait_for_approval().await? {
+    trace_weft::HitlResponse::Approved(args) => execute(args).await,
+    trace_weft::HitlResponse::Rejected(reason) => bail!("rejected: {reason}"),
 }
 ```
 
 ## Local Dev Workflow
 
-Once your application produces traces into `.trace-weft/traces.sqlite`, you can inspect them visually:
+Once your application produces traces into `.trace-weft/traces.sqlite`, inspect
+them visually:
 
 ```bash
 trace-weft dev
 ```
 
-This starts the local `axum` API and React web UI. Navigate to `http://localhost:3000` to view the Trace List, Span Tree, Waterfall, and Replay/Diff UI.
+This starts the local `axum` API and React web UI. Navigate to
+`http://localhost:3000` to view the Trace List, Span Tree, Waterfall, and
+Replay/Diff UI.
 
 ## Crate Layout
 
-- `crates/trace-weft` - main user-facing SDK facade
+- `crates/trace-weft` - main user-facing SDK facade (builder, macros, events, capture, HITL, replay)
 - `crates/trace-weft-core` - IDs, schemas, span/event types, redaction traits
 - `crates/trace-weft-macros` - proc macros: `#[agent]`, `#[tool]`, `#[llm_call]`
 - `crates/trace-weft-otel` - OpenTelemetry export/import bridge
 - `crates/trace-weft-openinference` - OpenInference compatibility mapping
-- `crates/trace-weft-recorder` - local JSONL/SQLite/blob recorder
+- `crates/trace-weft-recorder` - local JSONL/SQLite/blob recorder (`sqlite` feature, on by default)
 - `crates/trace-weft-ingest` - OTLP HTTP/gRPC ingestion primitives
 - `crates/trace-weft-server` - axum API, query layer, live streaming
 - `crates/trace-weft-cli` - CLI: dev, import, export, replay
 - `apps/web` - React / TypeScript / Vite UI
+```
