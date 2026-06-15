@@ -24,6 +24,10 @@ pub struct RunId(pub uuid::Uuid);
 #[serde(transparent)]
 pub struct SessionId(pub uuid::Uuid);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct EventId(pub uuid::Uuid);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct BlobHash(pub String);
@@ -99,6 +103,24 @@ pub enum SideEffectPolicy {
     ExternalWrite,
     PaymentOrSensitiveAction,
     Unknown,
+}
+
+/// Kind of an intra-span event — a point-in-time occurrence within a span's
+/// lifetime (a retry, a budget check, a guardrail trip, an REPL step), as
+/// opposed to a span, which has a duration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventKind {
+    LlmCall,
+    ToolCall,
+    ReplExec,
+    Rpc,
+    Budget,
+    Guardrail,
+    Retry,
+    Termination,
+    Log,
+    Custom,
 }
 
 // --- Structs ---
@@ -192,6 +214,26 @@ pub struct TraceRecord {
     pub spans: Vec<SpanRecord>,
 }
 
+/// A point-in-time event recorded within a span. Events carry their parent
+/// span and an ordering `seq` so an event stream (retries, budget checks,
+/// guardrail trips, REPL steps) survives without collapsing into many tiny
+/// spans.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventRecord {
+    pub event_id: EventId,
+    pub trace_id: TraceId,
+    pub run_id: RunId,
+    pub parent_span_id: Option<SpanId>,
+    /// Monotonic ordering hint within the process/trace.
+    pub seq: u64,
+    pub event_kind: EventKind,
+    pub name: String,
+    pub timestamp: u64, // ms
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub attributes: HashMap<String, serde_json::Value>,
+    pub schema_version: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CheckpointRecord {
     pub id: uuid::Uuid,
@@ -231,7 +273,8 @@ pub trait BlobStore: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::test_util::{
-        sample_blob_ref, sample_checkpoint, sample_span_full, sample_span_minimal,
+        sample_blob_ref, sample_checkpoint, sample_event, sample_event_minimal, sample_span_full,
+        sample_span_minimal,
     };
     use super::*;
     use serde_json::json;
@@ -270,6 +313,33 @@ mod tests {
     fn checkpoint_record_roundtrip() {
         let checkpoint = sample_checkpoint();
         assert_eq!(roundtrip(&checkpoint), checkpoint);
+    }
+
+    #[test]
+    fn event_record_roundtrip() {
+        let event = sample_event();
+        assert_eq!(roundtrip(&event), event);
+    }
+
+    #[test]
+    fn event_record_minimal_roundtrip() {
+        let event = sample_event_minimal();
+        assert_eq!(roundtrip(&event), event);
+        // Empty attributes are omitted from the wire format.
+        let value = serde_json::to_value(&event).unwrap();
+        assert!(!value.as_object().unwrap().contains_key("attributes"));
+    }
+
+    #[test]
+    fn event_kind_uses_snake_case_wire_format() {
+        assert_eq!(
+            serde_json::to_value(EventKind::LlmCall).unwrap(),
+            json!("llm_call")
+        );
+        assert_eq!(
+            serde_json::to_value(EventKind::ReplExec).unwrap(),
+            json!("repl_exec")
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use std::sync::{Arc, Mutex};
-use trace_weft_core::{SpanRecord, TraceWeftSpanKind};
+use trace_weft_core::{EventRecord, SpanRecord, TraceWeftSpanKind};
 use trace_weft_recorder::TraceStore;
 
 /// In-memory trace store designed specifically for capturing spans during local unit tests
@@ -7,6 +7,7 @@ use trace_weft_recorder::TraceStore;
 #[derive(Clone, Default)]
 pub struct MemoryStore {
     pub spans: Arc<Mutex<Vec<SpanRecord>>>,
+    pub events: Arc<Mutex<Vec<EventRecord>>>,
 }
 
 impl MemoryStore {
@@ -21,6 +22,7 @@ impl MemoryStore {
 
     pub fn clear(&self) {
         self.spans.lock().unwrap().clear();
+        self.events.lock().unwrap().clear();
     }
 }
 
@@ -28,6 +30,11 @@ impl MemoryStore {
 impl TraceStore for MemoryStore {
     async fn record_span(&self, span: SpanRecord) -> anyhow::Result<()> {
         self.spans.lock().unwrap().push(span);
+        Ok(())
+    }
+
+    async fn record_event(&self, event: EventRecord) -> anyhow::Result<()> {
+        self.events.lock().unwrap().push(event);
         Ok(())
     }
 }

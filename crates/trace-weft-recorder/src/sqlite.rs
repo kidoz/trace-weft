@@ -2,7 +2,7 @@ use crate::TraceStore;
 use anyhow::Result;
 use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
 use std::path::PathBuf;
-use trace_weft_core::SpanRecord;
+use trace_weft_core::{EventRecord, SpanRecord};
 
 pub struct SqliteRecorder {
     pool: SqlitePool,
@@ -90,6 +90,36 @@ impl TraceStore for SqliteRecorder {
         .bind(span.model_provider).bind(span.model_name).bind(span.tool_name).bind(span.tool_schema_hash).bind(span.retrieval_query_hash)
         .bind(retrieved_document_refs).bind(token_usage).bind(cost_estimate).bind(span.latency_ms.map(|t| t as i64)).bind(span.retry_count).bind(span.cache_hit)
         .bind(redaction_policy).bind(span.schema_version)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    async fn record_event(&self, event: EventRecord) -> Result<()> {
+        let event_kind = serde_json::to_string(&event.event_kind)?
+            .trim_matches('"')
+            .to_string();
+        let attributes = serde_json::to_string(&event.attributes)?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO events (
+                event_id, trace_id, run_id, parent_span_id, seq,
+                event_kind, name, timestamp, attributes, schema_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(event.event_id.0.to_string())
+        .bind(event.trace_id.0.to_string())
+        .bind(event.run_id.0.to_string())
+        .bind(event.parent_span_id.map(|id| id.0.to_string()))
+        .bind(event.seq as i64)
+        .bind(event_kind)
+        .bind(event.name)
+        .bind(event.timestamp as i64)
+        .bind(attributes)
+        .bind(event.schema_version)
         .execute(&self.pool)
         .await?;
 

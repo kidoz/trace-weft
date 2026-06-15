@@ -2,6 +2,7 @@ pub mod builder;
 pub mod capture;
 pub mod context;
 pub mod eval;
+pub mod events;
 pub mod hitl;
 pub mod replay;
 
@@ -10,6 +11,7 @@ pub use builder::{
 };
 pub use capture::{CaptureConfig, capture_enabled, capture_json, init_capture};
 pub use context::{SpanContext, current_span_context, scope_current};
+pub use events::{EventBuilder, event};
 
 pub use hitl::{HitlResponse, get_pending_approvals, register_approval, resolve_approval};
 pub use replay::{ReplayConfig, init_replay};
@@ -60,5 +62,11 @@ pub fn init_custom(store: Arc<dyn TraceStore>) -> anyhow::Result<()> {
 pub async fn record_span(span: SpanRecord) {
     if let Some(recorder) = RECORDER.get() {
         let _ = recorder.record_span(span).await;
+    }
+}
+
+pub async fn record_event(event: EventRecord) {
+    if let Some(recorder) = RECORDER.get() {
+        let _ = recorder.record_event(event).await;
     }
 }

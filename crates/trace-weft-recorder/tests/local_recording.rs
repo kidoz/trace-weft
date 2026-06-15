@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use sqlx::{Row, sqlite::SqlitePoolOptions};
 use tempfile::TempDir;
-use trace_weft_core::test_util::{sample_span_full, sample_span_minimal};
-use trace_weft_core::{CapturePolicy, SpanRecord, TokenUsage};
+use trace_weft_core::test_util::{sample_event, sample_span_full, sample_span_minimal};
+use trace_weft_core::{CapturePolicy, EventRecord, SpanRecord, TokenUsage};
 use trace_weft_recorder::sqlite::SqliteRecorder;
 use trace_weft_recorder::{DualRecorder, LocalConfig, TraceStore};
 
@@ -97,6 +97,76 @@ async fn sqlite_recorder_persists_minimal_span_with_nulls() {
     assert_eq!(row.get::<Option<String>, _>("token_usage"), None);
     assert_eq!(row.get::<Option<String>, _>("input_ref"), None);
     assert_eq!(row.get::<Option<bool>, _>("cache_hit"), None);
+}
+
+#[tokio::test]
+async fn sqlite_recorder_persists_event() {
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("traces.sqlite");
+    let recorder = SqliteRecorder::new(db_path.clone()).await.unwrap();
+
+    let event = sample_event();
+    recorder.record_event(event.clone()).await.unwrap();
+
+    let pool = open_pool(&db_path).await;
+    let row = sqlx::query("SELECT * FROM events WHERE event_id = ?")
+        .bind(event.event_id.0.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(row.get::<String, _>("trace_id"), event.trace_id.0.to_string());
+    assert_eq!(
+        row.get::<Option<String>, _>("parent_span_id"),
+        event.parent_span_id.map(|id| id.0.to_string())
+    );
+    assert_eq!(row.get::<String, _>("event_kind"), "retry");
+    assert_eq!(row.get::<String, _>("name"), "llm_retry");
+    assert_eq!(row.get::<i64, _>("seq") as u64, event.seq);
+    assert_eq!(row.get::<i64, _>("timestamp") as u64, event.timestamp);
+
+    let attributes: HashMap<String, serde_json::Value> =
+        serde_json::from_str(&row.get::<String, _>("attributes")).unwrap();
+    assert_eq!(attributes, event.attributes);
+}
+
+#[tokio::test]
+async fn dual_recorder_writes_events_to_sibling_jsonl() {
+    let dir = TempDir::new().unwrap();
+    let config = LocalConfig {
+        database_path: dir.path().join("traces.jsonl"),
+        sqlite_db_path: dir.path().join("traces.sqlite"),
+        blob_dir: dir.path().join("blobs"),
+        capture_content: CapturePolicy::MetadataOnly,
+    };
+    let recorder = DualRecorder::new(config.clone()).await.unwrap();
+
+    let event = sample_event();
+    recorder.record_event(event.clone()).await.unwrap();
+
+    // Events go to a sibling file, never the span stream.
+    let events_path = dir.path().join("traces.events.jsonl");
+    let jsonl = std::fs::read_to_string(&events_path).unwrap();
+    let recorded: Vec<EventRecord> = jsonl
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(recorded, vec![event.clone()]);
+    assert!(
+        !config.database_path.exists()
+            || std::fs::read_to_string(&config.database_path)
+                .unwrap()
+                .is_empty(),
+        "span stream must not contain events"
+    );
+
+    let pool = open_pool(&config.sqlite_db_path).await;
+    let count: i64 = sqlx::query("SELECT COUNT(*) AS n FROM events")
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get("n");
+    assert_eq!(count, 1);
 }
 
 #[tokio::test]

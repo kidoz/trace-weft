@@ -13,9 +13,10 @@ use serde::Serialize;
 use trace_weft::capture::MemoryBlobStore;
 use trace_weft::eval::{MemoryStore, TraceTrajectory};
 use trace_weft::{
-    CaptureConfig, CapturePolicy, CostEstimate, HitlResponse, RedactionStatus, ReplayConfig,
-    SpanRecord, SpanStatus, TokenUsage, TraceWeftSpanKind, agent, build_agent, build_llm_call,
-    build_tool, init_capture, init_replay, llm_call, resolve_approval, tool,
+    CaptureConfig, CapturePolicy, CostEstimate, EventKind, EventRecord, HitlResponse,
+    RedactionStatus, ReplayConfig, SpanRecord, SpanStatus, TokenUsage, TraceWeftSpanKind, agent,
+    build_agent, build_llm_call, build_tool, event, init_capture, init_replay, llm_call,
+    resolve_approval, tool,
 };
 
 fn store() -> &'static MemoryStore {
@@ -35,6 +36,17 @@ fn recorded_spans_named(name: &str) -> Vec<SpanRecord> {
         .unwrap()
         .iter()
         .filter(|s| s.name == name)
+        .cloned()
+        .collect()
+}
+
+fn recorded_events_named(name: &str) -> Vec<EventRecord> {
+    store()
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| e.name == name)
         .cloned()
         .collect()
 }
@@ -134,6 +146,51 @@ async fn macro_tool_fn() -> Result<u8, String> {
 #[llm_call]
 async fn macro_llm_fn() -> Result<u8, String> {
     Ok(3)
+}
+
+#[tokio::test]
+async fn events_auto_link_to_ambient_span() {
+    store();
+    build_agent("e2e_event_root")
+        .run(|| async {
+            event(EventKind::Budget, "e2e_budget_check")
+                .attribute("tokens_remaining", serde_json::json!(1500))
+                .record()
+                .await;
+            event(EventKind::Retry, "e2e_retry").record().await;
+            Ok::<(), String>(())
+        })
+        .await
+        .unwrap();
+
+    let root = &recorded_spans_named("e2e_event_root")[0];
+
+    let budget = recorded_events_named("e2e_budget_check");
+    assert_eq!(budget.len(), 1);
+    assert_eq!(budget[0].event_kind, EventKind::Budget);
+    assert_eq!(budget[0].parent_span_id, Some(root.span_id));
+    assert_eq!(budget[0].trace_id, root.trace_id);
+    assert_eq!(budget[0].run_id, root.run_id);
+    assert_eq!(
+        budget[0].attributes.get("tokens_remaining"),
+        Some(&serde_json::json!(1500))
+    );
+
+    let retry = recorded_events_named("e2e_retry");
+    assert_eq!(retry.len(), 1);
+    assert_eq!(retry[0].parent_span_id, Some(root.span_id));
+    // Events carry a monotonic ordering hint.
+    assert!(retry[0].seq > budget[0].seq);
+}
+
+#[tokio::test]
+async fn event_without_ambient_context_is_unparented() {
+    store();
+    event(EventKind::Log, "e2e_orphan_event").record().await;
+
+    let events = recorded_events_named("e2e_orphan_event");
+    assert_eq!(events.len(), 1);
+    assert!(events[0].parent_span_id.is_none());
 }
 
 #[tokio::test]

@@ -6,9 +6,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    BlobHash, BlobRef, CapturePolicy, CheckpointRecord, CostEstimate, RedactionStatus, ReplayMode,
-    RunId, SessionId, SideEffectPolicy, SpanId, SpanRecord, SpanStatus, TokenUsage, TraceId,
-    TraceWeftSpanKind,
+    BlobHash, BlobRef, CapturePolicy, CheckpointRecord, CostEstimate, EventId, EventKind,
+    EventRecord, RedactionStatus, ReplayMode, RunId, SessionId, SideEffectPolicy, SpanId,
+    SpanRecord, SpanStatus, TokenUsage, TraceId, TraceWeftSpanKind,
 };
 
 fn fixed_uuid(seed: u128) -> uuid::Uuid {
@@ -127,6 +127,42 @@ pub fn sample_span_minimal() -> SpanRecord {
         retry_count: None,
         cache_hit: None,
         redaction_policy: CapturePolicy::MetadataOnly,
+        schema_version: "1.0".into(),
+    }
+}
+
+/// An `EventRecord` parented to the span from [`sample_span_full`].
+pub fn sample_event() -> EventRecord {
+    let mut attributes = HashMap::new();
+    attributes.insert("attempt".to_string(), serde_json::json!(2));
+    attributes.insert("reason".to_string(), serde_json::json!("rate_limited"));
+
+    EventRecord {
+        event_id: EventId(fixed_uuid(0x20)),
+        trace_id: TraceId(fixed_uuid(1)),
+        run_id: RunId(fixed_uuid(4)),
+        parent_span_id: Some(SpanId(fixed_uuid(2))),
+        seq: 3,
+        event_kind: EventKind::Retry,
+        name: "llm_retry".into(),
+        timestamp: 1_715_000_002_500,
+        attributes,
+        schema_version: "1.0".into(),
+    }
+}
+
+/// An `EventRecord` with no parent and no attributes.
+pub fn sample_event_minimal() -> EventRecord {
+    EventRecord {
+        event_id: EventId(fixed_uuid(0x21)),
+        trace_id: TraceId(fixed_uuid(0x101)),
+        run_id: RunId(fixed_uuid(0x103)),
+        parent_span_id: None,
+        seq: 0,
+        event_kind: EventKind::Log,
+        name: "started".into(),
+        timestamp: 1_715_000_000_000,
+        attributes: HashMap::new(),
         schema_version: "1.0".into(),
     }
 }
