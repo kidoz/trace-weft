@@ -1,10 +1,10 @@
 use anyhow::Result;
 use opentelemetry::{
     KeyValue,
-    trace::{Span, SpanKind, Status, TraceError, Tracer},
+    trace::{Span, SpanKind, Status, Tracer, TracerProvider as _},
 };
-use opentelemetry_otlp::WithExportConfig;
-use opentelemetry_sdk::{Resource, trace as sdktrace};
+use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+use opentelemetry_sdk::{Resource, trace as sdktrace, trace::TracerProvider};
 use trace_weft_core::{SpanRecord, SpanStatus, TraceWeftSpanKind};
 
 /// Map a TraceWeft span kind onto the closest OpenTelemetry span kind.
@@ -78,27 +78,28 @@ pub fn map_otel_attributes(record: &SpanRecord) -> Vec<KeyValue> {
 }
 
 pub struct OtelExporter {
+    provider: sdktrace::TracerProvider,
     tracer: sdktrace::Tracer,
 }
 
 impl OtelExporter {
-    pub fn new(endpoint: &str, service_name: &str) -> Result<Self, TraceError> {
-        let tracer = opentelemetry_otlp::new_pipeline()
-            .tracing()
-            .with_exporter(
-                opentelemetry_otlp::new_exporter()
-                    .tonic()
-                    .with_endpoint(endpoint),
-            )
-            .with_trace_config(sdktrace::config().with_resource(Resource::new(vec![
-                KeyValue::new(
-                    opentelemetry_semantic_conventions::resource::SERVICE_NAME,
-                    service_name.to_string(),
-                ),
-            ])))
-            .install_batch(opentelemetry_sdk::runtime::Tokio)?;
+    pub fn new(endpoint: &str, service_name: &str) -> Result<Self> {
+        let exporter = SpanExporter::builder()
+            .with_tonic()
+            .with_endpoint(endpoint)
+            .build()?;
 
-        Ok(Self { tracer })
+        let provider = TracerProvider::builder()
+            .with_batch_exporter(exporter, opentelemetry_sdk::runtime::Tokio)
+            .with_resource(Resource::new([KeyValue::new(
+                opentelemetry_semantic_conventions::resource::SERVICE_NAME,
+                service_name.to_string(),
+            )]))
+            .build();
+
+        let tracer = provider.tracer("trace-weft");
+
+        Ok(Self { provider, tracer })
     }
 
     pub fn export_span(&self, record: &SpanRecord) {
@@ -128,7 +129,7 @@ impl OtelExporter {
     }
 
     pub fn shutdown(&self) {
-        opentelemetry::global::shutdown_tracer_provider();
+        let _ = self.provider.shutdown();
     }
 }
 
