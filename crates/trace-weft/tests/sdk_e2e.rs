@@ -210,6 +210,46 @@ async fn macro_failing_fn() -> Result<u8, String> {
     Err("kaboom".to_string())
 }
 
+struct MacroCalc {
+    base: u8,
+}
+
+impl MacroCalc {
+    /// Doc comments and other attributes on the method must survive expansion.
+    #[tool]
+    async fn add(&self, x: u8) -> Result<u8, String> {
+        Ok(self.base + x)
+    }
+}
+
+trait MacroGreeter {
+    async fn greet(&self) -> Result<String, String>;
+}
+
+impl MacroGreeter for MacroCalc {
+    #[llm_call]
+    async fn greet(&self) -> Result<String, String> {
+        Ok(format!("base={}", self.base))
+    }
+}
+
+#[tokio::test]
+async fn macros_instrument_impl_methods() {
+    store();
+    let calc = MacroCalc { base: 10 };
+
+    assert_eq!(calc.add(5).await, Ok(15));
+    assert_eq!(calc.greet().await, Ok("base=10".to_string()));
+
+    let add_spans = recorded_spans_named("add");
+    assert_eq!(add_spans.len(), 1);
+    assert_eq!(add_spans[0].span_kind, TraceWeftSpanKind::Tool);
+
+    let greet_spans = recorded_spans_named("greet");
+    assert_eq!(greet_spans.len(), 1);
+    assert_eq!(greet_spans[0].span_kind, TraceWeftSpanKind::LlmCall);
+}
+
 #[tokio::test]
 async fn macro_records_error_status_on_err() {
     store();

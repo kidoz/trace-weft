@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{ItemFn, ReturnType, Type, parse_macro_input};
+use syn::{ImplItemFn, ItemFn, ReturnType, Type};
 
 /// Whether the function's declared return type is a `Result<_, _>` (by the last
 /// path segment, so `Result`, `std::result::Result`, and `anyhow::Result` all
@@ -16,17 +16,34 @@ fn returns_result(sig: &syn::Signature) -> bool {
 
 /// Shared expansion for the instrumentation attributes. `kind` is the
 /// `TraceWeftSpanKind` variant ident to stamp on the recorded span.
+///
+/// Accepts both free functions and `impl`/trait-impl methods (including
+/// `&self` receivers). Trait *definitions* carry no body, so the target is the
+/// concrete `impl`. The function must be `async`.
 fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as ItemFn);
-    let name = &input.sig.ident;
-    let block = &input.block;
-    let sig = &input.sig;
-    let vis = &input.vis;
+    let item2 = TokenStream2::from(item);
+
+    // A normal method parses as an `ItemFn`; the `ImplItemFn` fallback covers
+    // `default fn` and other impl-only shapes. We keep `attrs` and any
+    // `defaultness` so doc comments, stacked attributes, and `default` survive.
+    let parsed = syn::parse2::<ItemFn>(item2.clone())
+        .map(|f| (f.attrs, f.vis, quote!(), f.sig, *f.block))
+        .or_else(|_| {
+            syn::parse2::<ImplItemFn>(item2).map(|m| {
+                let defaultness = m.defaultness;
+                (m.attrs, m.vis, quote!(#defaultness), m.sig, m.block)
+            })
+        });
+    let (attrs, vis, defaultness, sig, block) = match parsed {
+        Ok(parts) => parts,
+        Err(err) => return err.to_compile_error().into(),
+    };
+    let name = &sig.ident;
 
     // A `Result`-returning body sets Error status on `Err`; everything else
     // always completes Ok. Only the `Result` arm touches `result` by reference,
     // so a non-`Result` body never gains a spurious `Debug`/`Display` bound.
-    let status_update = if returns_result(sig) {
+    let status_update = if returns_result(&sig) {
         quote! {
             match &result {
                 Ok(_) => { _span.status = trace_weft::SpanStatus::Ok; }
@@ -42,7 +59,8 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        #vis #sig {
+        #(#attrs)*
+        #vis #defaultness #sig {
             let mut _span = trace_weft::SpanRecord {
                 trace_id: trace_weft::TraceId(trace_weft::uuid::Uuid::now_v7()),
                 span_id: trace_weft::SpanId(trace_weft::uuid::Uuid::now_v7()),
@@ -92,7 +110,7 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
                 run_id: _span.run_id,
                 span_id: _span.span_id,
             };
-            let result = trace_weft::scope_current(__ctx, async move { #block }).await;
+            let result = trace_weft::scope_current(__ctx, async move #block).await;
 
             _span.end_time = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
             _span.latency_ms = Some(_span.end_time.unwrap() - _span.start_time);
