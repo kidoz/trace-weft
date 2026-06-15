@@ -205,6 +205,25 @@ async fn macros_auto_link_to_ambient_parent() {
     assert_eq!(inner.run_id, outer.run_id);
 }
 
+#[tool]
+async fn macro_failing_fn() -> Result<u8, String> {
+    Err("kaboom".to_string())
+}
+
+#[tokio::test]
+async fn macro_records_error_status_on_err() {
+    store();
+    let result = macro_failing_fn().await;
+    assert_eq!(result, Err("kaboom".to_string()));
+
+    let spans = recorded_spans_named("macro_failing_fn");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    assert_eq!(span.status, SpanStatus::Error);
+    assert_eq!(span.error_message_redacted.as_deref(), Some("kaboom"));
+    assert!(span.error_type.is_some());
+}
+
 #[tokio::test]
 async fn macros_record_their_own_span_kind() {
     store();

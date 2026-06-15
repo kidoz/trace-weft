@@ -1,7 +1,18 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
-use syn::{ItemFn, parse_macro_input};
+use syn::{ItemFn, ReturnType, Type, parse_macro_input};
+
+/// Whether the function's declared return type is a `Result<_, _>` (by the last
+/// path segment, so `Result`, `std::result::Result`, and `anyhow::Result` all
+/// match). Used to decide whether the recorded span can fail.
+fn returns_result(sig: &syn::Signature) -> bool {
+    let ReturnType::Type(_, ty) = &sig.output else {
+        return false;
+    };
+    matches!(&**ty, Type::Path(tp)
+        if tp.path.segments.last().is_some_and(|seg| seg.ident == "Result"))
+}
 
 /// Shared expansion for the instrumentation attributes. `kind` is the
 /// `TraceWeftSpanKind` variant ident to stamp on the recorded span.
@@ -11,6 +22,24 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
     let block = &input.block;
     let sig = &input.sig;
     let vis = &input.vis;
+
+    // A `Result`-returning body sets Error status on `Err`; everything else
+    // always completes Ok. Only the `Result` arm touches `result` by reference,
+    // so a non-`Result` body never gains a spurious `Debug`/`Display` bound.
+    let status_update = if returns_result(sig) {
+        quote! {
+            match &result {
+                Ok(_) => { _span.status = trace_weft::SpanStatus::Ok; }
+                Err(__e) => {
+                    _span.status = trace_weft::SpanStatus::Error;
+                    _span.error_type = Some(format!("{:?}", __e));
+                    _span.error_message_redacted = Some(format!("{}", __e));
+                }
+            }
+        }
+    } else {
+        quote! { _span.status = trace_weft::SpanStatus::Ok; }
+    };
 
     let expanded = quote! {
         #vis #sig {
@@ -67,7 +96,7 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
 
             _span.end_time = Some(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64);
             _span.latency_ms = Some(_span.end_time.unwrap() - _span.start_time);
-            _span.status = trace_weft::SpanStatus::Ok;
+            #status_update
             trace_weft::record_span(_span).await;
 
             result
