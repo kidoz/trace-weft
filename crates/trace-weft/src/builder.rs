@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use trace_weft_core::{
-    BlobRef, CapturePolicy, RunId, SpanId, SpanRecord, SpanStatus, TraceId, TraceWeftSpanKind,
+    BlobRef, CapturePolicy, CostEstimate, RunId, SpanId, SpanRecord, SpanStatus, TokenUsage,
+    TraceId, TraceWeftSpanKind,
 };
 use uuid::Uuid;
 
@@ -78,6 +79,45 @@ impl SpanBuilder {
 
     pub fn input_ref(mut self, blob_ref: BlobRef) -> Self {
         self.span.input_ref = Some(blob_ref);
+        self
+    }
+
+    pub fn output_ref(mut self, blob_ref: BlobRef) -> Self {
+        self.span.output_ref = Some(blob_ref);
+        self
+    }
+
+    pub fn token_usage(mut self, usage: TokenUsage) -> Self {
+        self.span.token_usage = Some(usage);
+        self
+    }
+
+    pub fn cost(mut self, cost: CostEstimate) -> Self {
+        self.span.cost_estimate = Some(cost);
+        self
+    }
+
+    pub fn cache_hit(mut self, hit: bool) -> Self {
+        self.span.cache_hit = Some(hit);
+        self
+    }
+
+    /// Record a retrieval query hash and the documents it returned.
+    pub fn retrieval(mut self, query_hash: impl Into<String>, doc_refs: Vec<BlobRef>) -> Self {
+        self.span.retrieval_query_hash = Some(query_hash.into());
+        self.span.retrieved_document_refs = doc_refs;
+        self
+    }
+
+    /// Insert a single free-form attribute.
+    pub fn attribute(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.span.attributes.insert(key.into(), value);
+        self
+    }
+
+    /// Merge a map of free-form attributes into the span.
+    pub fn attributes(mut self, attrs: HashMap<String, serde_json::Value>) -> Self {
+        self.span.attributes.extend(attrs);
         self
     }
 

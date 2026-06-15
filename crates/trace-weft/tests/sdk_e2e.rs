@@ -80,6 +80,45 @@ async fn tool_builder_records_error_span() {
 }
 
 #[tokio::test]
+async fn builder_setters_populate_rich_span_fields() {
+    store();
+    let usage = TokenUsage {
+        input: 100,
+        output: 40,
+        reasoning: Some(10),
+        breakdown: Default::default(),
+    };
+    let cost = CostEstimate {
+        currency: "USD".into(),
+        amount: 0.05,
+    };
+
+    build_llm_call("e2e_rich_fields")
+        .provider("anthropic")
+        .model("claude-fable-5")
+        .token_usage(usage.clone())
+        .cost(cost.clone())
+        .cache_hit(true)
+        .retrieval("sha256:query", vec![])
+        .attribute("region", serde_json::json!("us-east-1"))
+        .run(|| async { Ok::<i32, String>(1) })
+        .await
+        .unwrap();
+
+    let spans = recorded_spans_named("e2e_rich_fields");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    assert_eq!(span.token_usage.as_ref(), Some(&usage));
+    assert_eq!(span.cost_estimate.as_ref(), Some(&cost));
+    assert_eq!(span.cache_hit, Some(true));
+    assert_eq!(span.retrieval_query_hash.as_deref(), Some("sha256:query"));
+    assert_eq!(
+        span.attributes.get("region"),
+        Some(&serde_json::json!("us-east-1"))
+    );
+}
+
+#[tokio::test]
 async fn replay_mock_short_circuits_execution() {
     store();
     let mut config = ReplayConfig::default();
