@@ -19,7 +19,7 @@ pub use replay::{ReplayConfig, init_replay};
 pub use trace_weft_core::*;
 
 pub use trace_weft_macros::{agent, llm_call, tool};
-pub use trace_weft_recorder::{LocalConfig, LocalRecorder, TraceStore};
+pub use trace_weft_recorder::{LocalConfig, LocalRecorder, NullStore, TraceStore};
 
 // Re-export uuid and serde_json so the macros can reference them through the
 // facade without the consumer depending on either crate directly.

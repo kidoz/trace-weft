@@ -5,7 +5,7 @@ use tempfile::TempDir;
 use trace_weft_core::test_util::{sample_event, sample_span_full, sample_span_minimal};
 use trace_weft_core::{CapturePolicy, EventRecord, SpanRecord, TokenUsage};
 use trace_weft_recorder::sqlite::SqliteRecorder;
-use trace_weft_recorder::{DualRecorder, LocalConfig, TraceStore};
+use trace_weft_recorder::{DualRecorder, LocalConfig, NullStore, TraceStore};
 
 async fn open_pool(db_path: &std::path::Path) -> sqlx::SqlitePool {
     SqlitePoolOptions::new()
@@ -97,6 +97,14 @@ async fn sqlite_recorder_persists_minimal_span_with_nulls() {
     assert_eq!(row.get::<Option<String>, _>("token_usage"), None);
     assert_eq!(row.get::<Option<String>, _>("input_ref"), None);
     assert_eq!(row.get::<Option<bool>, _>("cache_hit"), None);
+}
+
+#[tokio::test]
+async fn null_store_discards_records() {
+    let store = NullStore;
+    // Both span and (default) event recording succeed and persist nothing.
+    store.record_span(sample_span_full()).await.unwrap();
+    store.record_event(sample_event()).await.unwrap();
 }
 
 #[tokio::test]

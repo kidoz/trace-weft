@@ -30,6 +30,19 @@ pub trait TraceStore: Send + Sync {
     }
 }
 
+/// A `TraceStore` that discards every span and event. Lets integrators compile
+/// tracing in but disable it at runtime (`init_custom(Arc::new(NullStore))`)
+/// without their own `cfg` shims.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NullStore;
+
+#[async_trait::async_trait]
+impl TraceStore for NullStore {
+    async fn record_span(&self, _span: SpanRecord) -> Result<()> {
+        Ok(())
+    }
+}
+
 pub struct DualRecorder {
     jsonl_file: Arc<Mutex<tokio::fs::File>>,
     events_file: Arc<Mutex<tokio::fs::File>>,
