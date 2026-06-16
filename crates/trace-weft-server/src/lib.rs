@@ -32,6 +32,19 @@ pub struct AppState {
 }
 
 pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow::Result<()> {
+    // No shutdown signal: runs until the process ends.
+    start_server_with_shutdown(db_url, port, blob_dir, std::future::pending::<()>()).await
+}
+
+/// Like [`start_server`], but stops gracefully when `shutdown` resolves. Used by
+/// the desktop app to start/stop the embedded server on demand and to drain it
+/// cleanly on app exit.
+pub async fn start_server_with_shutdown(
+    db_url: &str,
+    port: u16,
+    blob_dir: PathBuf,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<()> {
     let pool = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
         let pg_pool = PgPoolOptions::new().connect(db_url).await?;
         DbPool::Postgres(pg_pool)
@@ -87,7 +100,9 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
     tracing::info!("Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown)
+        .await?;
 
     Ok(())
 }

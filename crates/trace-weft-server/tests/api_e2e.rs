@@ -375,6 +375,43 @@ async fn trace_queries_are_scoped_to_the_authenticated_project() {
 }
 
 #[tokio::test]
+async fn server_starts_serves_and_shuts_down_gracefully() {
+    use std::time::Duration;
+
+    let dir = TempDir::new().unwrap();
+    let db = dir.path().join("traces.sqlite").to_string_lossy().into_owned();
+    let blob_dir = dir.path().join("blobs");
+
+    // Grab a free port, then release it so the server can bind it.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        trace_weft_server::start_server_with_shutdown(&db, port, blob_dir, async move {
+            let _ = rx.await;
+        })
+        .await
+    });
+
+    // Wait for it to bind, then confirm it serves a request.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let body = tokio::net::TcpStream::connect(("127.0.0.1", port)).await;
+    assert!(body.is_ok(), "server should be accepting connections");
+
+    // Signal shutdown; the server future must resolve promptly.
+    tx.send(()).unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(5), server).await;
+    assert!(
+        matches!(result, Ok(Ok(Ok(())))),
+        "server should shut down gracefully, got {result:?}"
+    );
+}
+
+#[tokio::test]
 async fn resolving_unknown_approval_returns_not_found() {
     let dir = TempDir::new().unwrap();
     let (app, _recorder) = test_app(dir.path()).await;
