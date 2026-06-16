@@ -3,6 +3,9 @@ name = "trace-weft-macros"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Instrumentation macros for TraceWeft (agent, tool, llm_call)"
+license.workspace = true
+repository.workspace = true
 
 [lib]
 proc-macro = true

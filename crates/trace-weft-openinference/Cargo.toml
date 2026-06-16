@@ -3,6 +3,9 @@ name = "trace-weft-openinference"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "OpenInference attribute compatibility for TraceWeft"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 trace-weft-core = { version = "0.2.0", path = "../trace-weft-core" }

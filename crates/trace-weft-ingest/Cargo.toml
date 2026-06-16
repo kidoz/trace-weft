@@ -3,6 +3,9 @@ name = "trace-weft-ingest"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "OTLP trace ingestion for TraceWeft that preserves original span IDs"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 trace-weft-core = { version = "0.2.0", path = "../trace-weft-core" }

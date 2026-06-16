@@ -3,6 +3,9 @@ name = "trace-weft-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Core IDs, span and event schemas, and redaction traits for TraceWeft"
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
 serde.workspace = true

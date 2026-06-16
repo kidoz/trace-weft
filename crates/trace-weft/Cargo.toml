@@ -3,6 +3,11 @@ name = "trace-weft"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+description = "Rust-first, local-first observability and debugging toolkit for LLM agents"
+license.workspace = true
+repository.workspace = true
+keywords = ["observability", "tracing", "llm", "agents", "opentelemetry"]
+categories = ["development-tools::debugging"]
 
 [features]
 default = ["sqlite"]
