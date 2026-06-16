@@ -242,6 +242,31 @@ This starts the local `axum` API and React web UI. Navigate to
 `http://localhost:3000` to view the Trace List, Span Tree, Waterfall, and
 Replay/Diff UI.
 
+## Server: storage backends and authentication
+
+The server query endpoints (`/api/traces`, `/api/traces/{id}`, `/api/evals`)
+run against either backend, selected by the database URL:
+
+- **SQLite** (default, local-first) — any path or `sqlite://` URL.
+- **Postgres** — a `postgres://` / `postgresql://` URL. The schema is created on
+  first connect and the same endpoints serve it with output matching SQLite.
+
+API-key authentication and per-project tenant isolation are configured via
+environment variables:
+
+- `TRACE_WEFT_API_KEYS` — comma-separated `raw_key:project_id` pairs. Keys are
+  hashed (SHA-256) at startup and never stored in the clear; requests
+  authenticate with `Authorization: Bearer <raw_key>`. Trace queries are scoped
+  to the key's project, and ingested spans are stamped with it server-side.
+- `TRACE_WEFT_DEV_MODE=1` — enable the dev bypass (no key required; queries span
+  all tenants). The embedded local server (`trace-weft dev`, desktop app)
+  defaults this **on** when no keys are configured; production `start_server`
+  use defaults it **off**, rejecting unauthenticated requests with `401`.
+
+OTLP/HTTP JSON ingestion (`/v1/traces`) decodes payloads with the
+`opentelemetry-proto` types, preserving original trace/span/parent IDs and
+returning `400` for malformed bodies.
+
 ## Crate Layout
 
 - `crates/trace-weft` - main user-facing SDK facade (builder, macros, events, capture, HITL, replay)
@@ -250,8 +275,8 @@ Replay/Diff UI.
 - `crates/trace-weft-otel` - OpenTelemetry export/import bridge
 - `crates/trace-weft-openinference` - OpenInference compatibility mapping
 - `crates/trace-weft-recorder` - local JSONL/SQLite/blob recorder (`sqlite` feature, on by default)
-- `crates/trace-weft-ingest` - OTLP HTTP/gRPC ingestion primitives
-- `crates/trace-weft-server` - axum API, query layer, live streaming
+- `crates/trace-weft-ingest` - OTLP ingestion via `opentelemetry-proto`, preserving original IDs
+- `crates/trace-weft-server` - axum API, SQLite + Postgres query layer, API-key auth and tenant scoping
 - `crates/trace-weft-cli` - CLI: dev, import, export, replay
 - `apps/web` - React / TypeScript / Vite UI
 ```
