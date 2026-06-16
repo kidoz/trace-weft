@@ -1,7 +1,9 @@
 # TraceWeft
 
 [![Language](https://img.shields.io/badge/language-Rust-blue.svg)](https://www.rust-lang.org/)
-[![GitHub License](https://img.shields.io/github/license/kidoz/trace-weft)](https://github.com/kidoz/trace-weft/blob/main/LICENSE)
+[![Rust Version](https://img.shields.io/badge/rust-1.94.1%2B-orange.svg)](https://www.rust-lang.org/)
+[![Edition](https://img.shields.io/badge/edition-2024-orange.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/index.html)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/kidoz/trace-weft/blob/main/LICENSE)
 
 > TraceWeft is an open-source Rust-first observability and debugging toolkit for LLM agents. It captures model calls, tool calls, memory operations, retrievals, state transitions, checkpoints, handoffs, and errors as structured traces, then lets developers inspect, replay, diff, and export them through OpenTelemetry-compatible pipelines.
 >
