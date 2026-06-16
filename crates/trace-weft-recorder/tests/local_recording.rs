@@ -123,7 +123,10 @@ async fn sqlite_recorder_persists_event() {
         .await
         .unwrap();
 
-    assert_eq!(row.get::<String, _>("trace_id"), event.trace_id.0.to_string());
+    assert_eq!(
+        row.get::<String, _>("trace_id"),
+        event.trace_id.0.to_string()
+    );
     assert_eq!(
         row.get::<Option<String>, _>("parent_span_id"),
         event.parent_span_id.map(|id| id.0.to_string())

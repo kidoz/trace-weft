@@ -118,8 +118,7 @@ fn raw_keys_from_env() -> Vec<(String, String)> {
         .filter_map(|pair| {
             let (key, project) = pair.trim().split_once(':')?;
             let (key, project) = (key.trim(), project.trim());
-            (!key.is_empty() && !project.is_empty())
-                .then(|| (key.to_string(), project.to_string()))
+            (!key.is_empty() && !project.is_empty()).then(|| (key.to_string(), project.to_string()))
         })
         .collect()
 }

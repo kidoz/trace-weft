@@ -308,10 +308,7 @@ mod tests {
             span_id_low_bytes(client.builder.span.span_id)
         );
         assert_eq!(
-            TraceContext::to_traceparent(
-                client.builder.span.trace_id,
-                client.builder.span.span_id
-            ),
+            TraceContext::to_traceparent(client.builder.span.trace_id, client.builder.span.span_id),
             tp
         );
         // The injected header is also recorded as an attribute.

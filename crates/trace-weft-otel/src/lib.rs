@@ -8,8 +8,7 @@ use opentelemetry::{
 };
 use opentelemetry_otlp::{SpanExporter, WithExportConfig};
 use opentelemetry_sdk::{
-    Resource,
-    trace as sdktrace,
+    Resource, trace as sdktrace,
     trace::{IdGenerator, RandomIdGenerator, SdkTracerProvider},
 };
 use std::cell::Cell;
@@ -160,7 +159,10 @@ pub fn map_otel_attributes(record: &SpanRecord) -> Vec<KeyValue> {
 
     // GenAI Semantic Conventions mapping
     if let Some(provider) = &record.model_provider {
-        attributes.push(KeyValue::new(semconv::GEN_AI_PROVIDER_NAME, provider.clone()));
+        attributes.push(KeyValue::new(
+            semconv::GEN_AI_PROVIDER_NAME,
+            provider.clone(),
+        ));
     }
     if let Some(model) = &record.model_name {
         attributes.push(KeyValue::new(semconv::GEN_AI_REQUEST_MODEL, model.clone()));
@@ -366,7 +368,10 @@ mod tests {
         // Stable across calls.
         assert_eq!(otel_trace_id(id), otel_trace_id(id));
         // Distinct inputs stay distinct (bijective).
-        assert_ne!(otel_trace_id(id), otel_trace_id(TraceId(Uuid::from_u128(1))));
+        assert_ne!(
+            otel_trace_id(id),
+            otel_trace_id(TraceId(Uuid::from_u128(1)))
+        );
     }
 
     #[test]

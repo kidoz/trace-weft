@@ -71,7 +71,9 @@ async fn handle_otlp_json_traces(
 /// wrong length or the all-zero (invalid) id.
 fn trace_id_from_bytes(bytes: &[u8]) -> Option<TraceId> {
     let arr: [u8; 16] = bytes.try_into().ok()?;
-    arr.iter().any(|b| *b != 0).then(|| TraceId(Uuid::from_bytes(arr)))
+    arr.iter()
+        .any(|b| *b != 0)
+        .then(|| TraceId(Uuid::from_bytes(arr)))
 }
 
 /// Convert an 8-byte OTLP span id into a [`SpanId`], placing the bytes in the
@@ -272,9 +274,10 @@ mod tests {
             Uuid::parse_str("0123456789abcdef0011223344556677").unwrap()
         );
         // span id = the 8 bytes in the low half of the UUID.
-        assert_eq!(&record.span_id.0.as_bytes()[8..16], &[
-            0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff
-        ]);
+        assert_eq!(
+            &record.span_id.0.as_bytes()[8..16],
+            &[0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]
+        );
         assert_eq!(&record.span_id.0.as_bytes()[0..8], &[0u8; 8]);
     }
 
@@ -324,9 +327,10 @@ mod tests {
         let with_parent = r#","parentSpanId": "1122334455667788""#;
         let record = parse_one(&payload(with_parent));
         let parent = record.parent_span_id.expect("parent present");
-        assert_eq!(&parent.0.as_bytes()[8..16], &[
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88
-        ]);
+        assert_eq!(
+            &parent.0.as_bytes()[8..16],
+            &[0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]
+        );
     }
 
     #[test]
@@ -430,7 +434,10 @@ mod tests {
         });
 
         // Not even JSON.
-        assert_eq!(post(&app, "this is not json").await, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            post(&app, "this is not json").await,
+            StatusCode::BAD_REQUEST
+        );
         // JSON, but the IDs are not valid hex — proto's hex decoder rejects it.
         let bad_hex = post(
             &app,
