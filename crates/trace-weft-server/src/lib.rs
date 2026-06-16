@@ -89,7 +89,7 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/traces", get(list_traces))
-        .route("/api/traces/:trace_id", get(get_trace))
+        .route("/api/traces/{trace_id}", get(get_trace))
         .route("/api/evals", get(list_evals))
         .route("/api/v1/batch", post(batch_ingest))
         .route("/api/hitl/pending", get(get_pending_approvals))

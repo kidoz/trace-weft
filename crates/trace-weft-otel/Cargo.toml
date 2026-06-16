@@ -8,12 +8,11 @@ trace-weft-core = { path = "../trace-weft-core" }
 tokio.workspace = true
 anyhow.workspace = true
 opentelemetry.workspace = true
-opentelemetry_sdk = { workspace = true, features = ["rt-tokio"] }
+opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 async-trait = "0.1"
-opentelemetry-semantic-conventions = "0.27"
 
 [dev-dependencies]
 trace-weft-core = { path = "../trace-weft-core", features = ["test-util"] }
