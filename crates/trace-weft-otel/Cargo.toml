@@ -16,3 +16,5 @@ async-trait = "0.1"
 
 [dev-dependencies]
 trace-weft-core = { path = "../trace-weft-core", features = ["test-util"] }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
+uuid.workspace = true
