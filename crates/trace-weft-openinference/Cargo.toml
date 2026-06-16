@@ -2,6 +2,7 @@
 name = "trace-weft-openinference"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 trace-weft-core = { path = "../trace-weft-core" }

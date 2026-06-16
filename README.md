@@ -25,7 +25,7 @@ a pure local-JSONL integrator that pulls no `sqlx`:
 trace-weft = { git = "https://github.com/kidoz/trace-weft", rev = "<commit-sha>", default-features = false }
 ```
 
-Requires Rust 1.85+ (edition 2024). Install the CLI from a checkout:
+Requires Rust 1.94.1+ (edition 2024). Install the CLI from a checkout:
 
 ```bash
 cargo install --path crates/trace-weft-cli
@@ -235,12 +235,24 @@ Once your application produces traces into `.trace-weft/traces.sqlite`, inspect
 them visually:
 
 ```bash
-trace-weft dev
+trace-weft dev          # starts the local axum API on :3000 (local-first)
 ```
 
-This starts the local `axum` API and React web UI. Navigate to
-`http://localhost:3000` to view the Trace List, Span Tree, Waterfall, and
-Replay/Diff UI.
+`trace-weft dev` starts only the **API server** (port 3000 by default,
+local-first auth). To view the React UI in a browser, run it against that API:
+
+```bash
+npm --prefix apps/web install
+npm --prefix apps/web run dev   # Vite dev server on :5173, proxies /api → :3000
+```
+
+Then open `http://localhost:5173` for the Trace List, Span Tree, Waterfall, and
+Replay/Diff UI. Alternatively, the desktop app (`apps/desktop`) bundles the
+built UI and embeds the API server in one window.
+
+The UI's API base is `import.meta.env.VITE_API_BASE` (empty by default → same
+-origin `/api`, which the Vite dev server proxies); the desktop build sets it to
+the embedded server's `http://127.0.0.1:3000`.
 
 ## Server: storage backends and authentication
 
