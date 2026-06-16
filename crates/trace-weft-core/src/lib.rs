@@ -3,6 +3,23 @@ use std::collections::HashMap;
 
 pub mod redactor;
 
+/// Shared OpenTelemetry GenAI semantic-convention attribute keys.
+///
+/// Defined once so the exporter (`trace-weft-otel`) and the OTLP ingest adapter
+/// (`trace-weft-ingest`) agree on attribute names instead of each repeating the
+/// string literals.
+pub mod semconv {
+    pub const GEN_AI_PROVIDER_NAME: &str = "gen_ai.provider.name";
+    pub const GEN_AI_REQUEST_MODEL: &str = "gen_ai.request.model";
+    pub const GEN_AI_TOOL_NAME: &str = "gen_ai.tool.name";
+    pub const GEN_AI_USAGE_INPUT_TOKENS: &str = "gen_ai.usage.input_tokens";
+    pub const GEN_AI_USAGE_OUTPUT_TOKENS: &str = "gen_ai.usage.output_tokens";
+    pub const GEN_AI_USAGE_REASONING_TOKENS: &str = "gen_ai.usage.reasoning_tokens";
+
+    /// TraceWeft span kind, serialized as the Rust variant name (e.g. `LlmCall`).
+    pub const TRACE_WEFT_SPAN_KIND: &str = "trace_weft.span.kind";
+}
+
 #[cfg(any(test, feature = "test-util"))]
 pub mod test_util;
 

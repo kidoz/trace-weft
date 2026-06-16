@@ -31,5 +31,6 @@ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio"]
 opentelemetry = "0.32"
 opentelemetry_sdk = "0.32"
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "trace"] }
+opentelemetry-proto = { version = "0.32", default-features = false, features = ["gen-tonic-messages", "trace", "with-serde"] }
 tonic = "0.14"
 prost = "0.14"

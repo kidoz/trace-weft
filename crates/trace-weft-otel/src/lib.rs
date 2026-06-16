@@ -156,35 +156,37 @@ pub fn map_otel_status(record: &SpanRecord) -> Status {
 pub fn map_otel_attributes(record: &SpanRecord) -> Vec<KeyValue> {
     let mut attributes = Vec::new();
 
+    use trace_weft_core::semconv;
+
     // GenAI Semantic Conventions mapping
     if let Some(provider) = &record.model_provider {
-        attributes.push(KeyValue::new("gen_ai.provider.name", provider.clone()));
+        attributes.push(KeyValue::new(semconv::GEN_AI_PROVIDER_NAME, provider.clone()));
     }
     if let Some(model) = &record.model_name {
-        attributes.push(KeyValue::new("gen_ai.request.model", model.clone()));
+        attributes.push(KeyValue::new(semconv::GEN_AI_REQUEST_MODEL, model.clone()));
     }
     if let Some(tool) = &record.tool_name {
-        attributes.push(KeyValue::new("gen_ai.tool.name", tool.clone()));
+        attributes.push(KeyValue::new(semconv::GEN_AI_TOOL_NAME, tool.clone()));
     }
 
     // Custom TraceWeft attributes
     attributes.push(KeyValue::new(
-        "trace_weft.span.kind",
+        semconv::TRACE_WEFT_SPAN_KIND,
         format!("{:?}", record.span_kind),
     ));
 
     if let Some(usage) = &record.token_usage {
         attributes.push(KeyValue::new(
-            "gen_ai.usage.input_tokens",
+            semconv::GEN_AI_USAGE_INPUT_TOKENS,
             usage.input as i64,
         ));
         attributes.push(KeyValue::new(
-            "gen_ai.usage.output_tokens",
+            semconv::GEN_AI_USAGE_OUTPUT_TOKENS,
             usage.output as i64,
         ));
         if let Some(reasoning) = usage.reasoning {
             attributes.push(KeyValue::new(
-                "gen_ai.usage.reasoning_tokens",
+                semconv::GEN_AI_USAGE_REASONING_TOKENS,
                 reasoning as i64,
             ));
         }
