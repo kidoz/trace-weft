@@ -122,6 +122,7 @@ fn map_otel_to_traceweft(span: &serde_json::Value) -> Option<SpanRecord> {
         run_id: RunId(Uuid::now_v7()), // Grouping under a single run for ingested
         session_id: None,
         user_id_hash: None,
+        project_id: None,
         span_kind,
         name: name.to_string(),
         start_time: start_time_unix_nano / 1_000_000,

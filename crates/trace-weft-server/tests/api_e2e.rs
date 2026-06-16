@@ -12,14 +12,23 @@ use sqlx::sqlite::SqlitePoolOptions;
 use tempfile::TempDir;
 use tower::ServiceExt;
 use trace_weft_core::test_util::{sample_span_full, sample_span_minimal};
-use trace_weft_core::{SpanId, SpanRecord, SpanStatus, TraceWeftSpanKind};
+use trace_weft_core::{SpanId, SpanRecord, SpanStatus, TraceId, TraceWeftSpanKind};
 use trace_weft_recorder::TraceStore;
 use trace_weft_recorder::sqlite::SqliteRecorder;
 use trace_weft_server::{AppState, DbPool, build_router};
 
-/// Build an app router backed by a fresh SQLite database in `dir`, returning
-/// the router and the recorder that writes into the same database.
+use trace_weft_server::auth::AuthConfig;
+
+/// Build an app router backed by a fresh SQLite database in `dir` with the dev
+/// bypass enabled, returning the router and the recorder that writes into the
+/// same database.
 async fn test_app(dir: &Path) -> (Router, Arc<SqliteRecorder>) {
+    test_app_with_auth(dir, AuthConfig::new(Vec::new(), true)).await
+}
+
+/// Like [`test_app`] but with an explicit auth configuration, for exercising
+/// rejection and per-project scoping.
+async fn test_app_with_auth(dir: &Path, auth: AuthConfig) -> (Router, Arc<SqliteRecorder>) {
     let db_path = dir.join("traces.sqlite");
     let recorder = Arc::new(SqliteRecorder::new(db_path.clone()).await.unwrap());
 
@@ -35,6 +44,7 @@ async fn test_app(dir: &Path) -> (Router, Arc<SqliteRecorder>) {
         )),
         trace_store: recorder.clone(),
         clickhouse: None,
+        auth: Arc::new(auth),
     };
 
     (build_router(state), recorder)
@@ -235,6 +245,133 @@ async fn hitl_endpoints_resolve_pending_approvals() {
             panic!("expected approval, got rejection: {reason}");
         }
     }
+}
+
+/// A distinct trace whose ids derive from `seed`, so independent traces can be
+/// ingested without span-id primary-key collisions.
+fn trace_with_seed(seed: u128) -> Vec<SpanRecord> {
+    let mut spans = sample_trace();
+    let trace_id = TraceId(uuid::Uuid::from_u128(seed));
+    for (i, span) in spans.iter_mut().enumerate() {
+        span.trace_id = trace_id;
+        span.span_id = SpanId(uuid::Uuid::from_u128(seed + 100 + i as u128));
+    }
+    let root_id = spans[0].span_id;
+    spans[0].parent_span_id = None;
+    for span in spans.iter_mut().skip(1) {
+        span.parent_span_id = Some(root_id);
+    }
+    spans
+}
+
+async fn post_batch(app: &Router, spans: &[SpanRecord], key: Option<&str>) -> StatusCode {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/api/v1/batch")
+        .header("Content-Type", "application/json");
+    if let Some(key) = key {
+        builder = builder.header("Authorization", format!("Bearer {key}"));
+    }
+    app.clone()
+        .oneshot(builder.body(Body::from(serde_json::to_vec(spans).unwrap())).unwrap())
+        .await
+        .unwrap()
+        .status()
+}
+
+async fn get_json_auth(
+    app: &Router,
+    uri: &str,
+    key: Option<&str>,
+) -> (StatusCode, serde_json::Value) {
+    let mut builder = Request::builder().uri(uri);
+    if let Some(key) = key {
+        builder = builder.header("Authorization", format!("Bearer {key}"));
+    }
+    let response = app
+        .clone()
+        .oneshot(builder.body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let value = if bytes.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_slice(&bytes).unwrap()
+    };
+    (status, value)
+}
+
+#[tokio::test]
+async fn queries_without_a_valid_key_are_rejected_outside_dev_mode() {
+    let dir = TempDir::new().unwrap();
+    let auth = AuthConfig::new(vec![("tw-secret".to_string(), "proj_a".to_string())], false);
+    let (app, _recorder) = test_app_with_auth(dir.path(), auth).await;
+
+    // No header and an unknown key are both rejected.
+    let (status, _) = get_json_auth(&app, "/api/traces", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = get_json_auth(&app, "/api/traces", Some("tw-wrong")).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // A recognized key is accepted.
+    let (status, _) = get_json_auth(&app, "/api/traces", Some("tw-secret")).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn trace_queries_are_scoped_to_the_authenticated_project() {
+    let dir = TempDir::new().unwrap();
+    let auth = AuthConfig::new(
+        vec![
+            ("tw-alpha".to_string(), "proj_a".to_string()),
+            ("tw-beta".to_string(), "proj_b".to_string()),
+        ],
+        false,
+    );
+    let (app, _recorder) = test_app_with_auth(dir.path(), auth).await;
+
+    // Each tenant ingests its own trace; the server stamps project_id from the key.
+    let alpha = trace_with_seed(0x0a00);
+    let beta = trace_with_seed(0x0b00);
+    assert_eq!(
+        post_batch(&app, &alpha, Some("tw-alpha")).await,
+        StatusCode::ACCEPTED
+    );
+    assert_eq!(
+        post_batch(&app, &beta, Some("tw-beta")).await,
+        StatusCode::ACCEPTED
+    );
+
+    let alpha_trace = alpha[0].trace_id.0.to_string();
+    let beta_trace = beta[0].trace_id.0.to_string();
+
+    // Alpha sees only its own trace in the list.
+    let (status, traces) = get_json_auth(&app, "/api/traces", Some("tw-alpha")).await;
+    assert_eq!(status, StatusCode::OK);
+    let traces = traces.as_array().unwrap();
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0]["trace_id"], serde_json::json!(alpha_trace));
+
+    // And cannot read beta's trace by id (scoped out → empty).
+    let (status, detail) = get_json_auth(
+        &app,
+        &format!("/api/traces/{beta_trace}"),
+        Some("tw-alpha"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(detail.as_array().unwrap().len(), 0);
+
+    // Beta sees its own trace and not alpha's.
+    let (status, traces) = get_json_auth(&app, "/api/traces", Some("tw-beta")).await;
+    assert_eq!(status, StatusCode::OK);
+    let traces = traces.as_array().unwrap();
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0]["trace_id"], serde_json::json!(beta_trace));
 }
 
 #[tokio::test]

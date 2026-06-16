@@ -52,10 +52,12 @@ impl PostgresRecorder {
                 retry_count INTEGER,
                 cache_hit BOOLEAN,
                 redaction_policy TEXT NOT NULL,
-                schema_version TEXT NOT NULL
+                schema_version TEXT NOT NULL,
+                project_id TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_spans_trace_id ON spans(trace_id);
             CREATE INDEX IF NOT EXISTS idx_spans_run_id ON spans(run_id);
+            CREATE INDEX IF NOT EXISTS idx_spans_project_id ON spans(project_id);
             "#,
         );
         let q: Query<'_, Postgres, PgArguments> = q;
@@ -107,7 +109,7 @@ impl TraceStore for PostgresRecorder {
                 input_ref, output_ref, prompt_template_id, prompt_version,
                 model_provider, model_name, tool_name, tool_schema_hash, retrieval_query_hash,
                 retrieved_document_refs, token_usage, cost_estimate, latency_ms, retry_count, cache_hit,
-                redaction_policy, schema_version
+                redaction_policy, schema_version, project_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6,
                 $7, $8, $9, $10, $11, $12, $13, $14,
@@ -115,7 +117,7 @@ impl TraceStore for PostgresRecorder {
                 $19, $20, $21, $22,
                 $23, $24, $25, $26, $27,
                 $28, $29, $30, $31, $32, $33,
-                $34, $35
+                $34, $35, $36
             )
             ON CONFLICT (span_id) DO NOTHING
             "#,
@@ -157,6 +159,7 @@ impl TraceStore for PostgresRecorder {
             .bind(span.cache_hit)
             .bind(redaction_policy)
             .bind(span.schema_version)
+            .bind(span.project_id)
             .execute(&self.pool)
             .await?;
 

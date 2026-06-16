@@ -182,6 +182,11 @@ pub struct SpanRecord {
     pub run_id: RunId,
     pub session_id: Option<SessionId>,
     pub user_id_hash: Option<String>,
+    /// Tenant the span belongs to. Set server-side from the authenticated API
+    /// key at ingest (clients cannot assert it); `None` for local-first
+    /// single-tenant recording. Used to scope trace queries per project.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     pub span_kind: TraceWeftSpanKind,
     pub name: String,
     pub start_time: u64,       // ms timestamp

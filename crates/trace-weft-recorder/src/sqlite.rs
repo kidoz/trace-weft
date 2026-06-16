@@ -71,7 +71,7 @@ impl TraceStore for SqliteRecorder {
                 input_ref, output_ref, prompt_template_id, prompt_version,
                 model_provider, model_name, tool_name, tool_schema_hash, retrieval_query_hash,
                 retrieved_document_refs, token_usage, cost_estimate, latency_ms, retry_count, cache_hit,
-                redaction_policy, schema_version
+                redaction_policy, schema_version, project_id
             ) VALUES (
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?,
@@ -79,7 +79,7 @@ impl TraceStore for SqliteRecorder {
                 ?, ?, ?, ?,
                 ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?,
-                ?, ?
+                ?, ?, ?
             )
             "#,
         )
@@ -89,7 +89,7 @@ impl TraceStore for SqliteRecorder {
         .bind(input_ref).bind(output_ref).bind(span.prompt_template_id).bind(span.prompt_version)
         .bind(span.model_provider).bind(span.model_name).bind(span.tool_name).bind(span.tool_schema_hash).bind(span.retrieval_query_hash)
         .bind(retrieved_document_refs).bind(token_usage).bind(cost_estimate).bind(span.latency_ms.map(|t| t as i64)).bind(span.retry_count).bind(span.cache_hit)
-        .bind(redaction_policy).bind(span.schema_version)
+        .bind(redaction_policy).bind(span.schema_version).bind(span.project_id)
         .execute(&self.pool)
         .await?;
 

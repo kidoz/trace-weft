@@ -1,5 +1,7 @@
+pub mod auth;
 pub mod storage;
 
+use auth::{Auth, AuthConfig};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -26,6 +28,7 @@ pub struct AppState {
     pub blob_store: Arc<dyn trace_weft_core::BlobStore>,
     pub trace_store: Arc<dyn TraceStore>,
     pub clickhouse: Option<Arc<storage::analytics::ClickHouseAnalytics>>,
+    pub auth: Arc<AuthConfig>,
 }
 
 pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow::Result<()> {
@@ -72,6 +75,7 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
         blob_store,
         trace_store,
         clickhouse,
+        auth: Arc::new(AuthConfig::from_env()),
     };
 
     let app = build_router(state);
@@ -98,29 +102,30 @@ pub fn build_router(state: AppState) -> Router {
         .with_state(state)
 }
 
-async fn validate_api_key(headers: &HeaderMap) -> Option<String> {
-    // Stub for API key validation returning a Project ID
-    if let Some(auth_str) = headers.get("Authorization").and_then(|a| a.to_str().ok())
-        && auth_str.starts_with("Bearer tw-")
-    {
-        return Some("proj_default_123".to_string());
-    }
-    // In local-first mode or during development without keys, return a default project
-    Some("proj_local".to_string())
+/// Resolve the request's API key to a tenant, or `401` when none is valid and
+/// the dev bypass is off.
+fn authorize(state: &AppState, headers: &HeaderMap) -> Result<Auth, StatusCode> {
+    state
+        .auth
+        .authenticate(headers)
+        .ok_or(StatusCode::UNAUTHORIZED)
 }
 
 async fn batch_ingest(
     headers: HeaderMap,
     State(state): State<AppState>,
-    Json(spans): Json<Vec<SpanRecord>>,
+    Json(mut spans): Json<Vec<SpanRecord>>,
 ) -> Result<StatusCode, StatusCode> {
-    let project_id = match validate_api_key(&headers).await {
-        Some(id) => id,
-        None => return Err(StatusCode::UNAUTHORIZED),
-    };
+    let auth = authorize(&state, &headers)?;
+    // The server is authoritative on tenancy: stamp the authenticated project
+    // onto every span so a client cannot assert someone else's project_id.
+    let project_id = auth.project().map(|p| p.to_string());
+    for span in &mut spans {
+        span.project_id = project_id.clone();
+    }
 
     tracing::info!(
-        "Received batch of {} spans for project {}",
+        "Received batch of {} spans for project {:?}",
         spans.len(),
         project_id
     );
@@ -250,38 +255,73 @@ macro_rules! span_detail_json {
     }};
 }
 
-// Portable across SQLite and Postgres: every span of a trace shares a run_id,
-// so MIN(run_id) is deterministic, and the error rollup is cast to BIGINT so
-// both engines decode it as i64. Selecting only grouped/aggregated columns
-// keeps Postgres (which rejects bare columns under GROUP BY) happy.
-const LIST_TRACES_SQL: &str = r#"
-    SELECT trace_id,
-           MIN(run_id) AS run_id,
-           MIN(start_time) AS start_time,
-           MAX(end_time) AS end_time,
-           COUNT(span_id) AS span_count,
+// Project scoping: each query filters on `project_id` against the bound
+// `project` value. A real tenant binds its project id; the dev bypass binds
+// SQL `NULL`, and the `OR <param> IS NULL` arm then matches every row so
+// local-first runs see all traces. Postgres reuses one `$1`; SQLite repeats the
+// positional `?`, so the project value is bound twice there.
+//
+// The aggregate is portable: every span of a trace shares a run_id (so
+// MIN(run_id) is deterministic), the error rollup is CAST to BIGINT so both
+// engines decode it as i64, and only grouped/aggregated columns are selected so
+// Postgres (which rejects bare columns under GROUP BY) is happy.
+const LIST_TRACES_SQL_SQLITE: &str = r#"
+    SELECT trace_id, MIN(run_id) AS run_id, MIN(start_time) AS start_time,
+           MAX(end_time) AS end_time, COUNT(span_id) AS span_count,
            CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error
     FROM spans
+    WHERE (project_id = ? OR ? IS NULL)
     GROUP BY trace_id
     ORDER BY start_time DESC
     LIMIT 50
 "#;
 
-const LIST_EVALS_SQL: &str = r#"
-    SELECT trace_id, span_id, name, start_time, status, attributes
+const LIST_TRACES_SQL_PG: &str = r#"
+    SELECT trace_id, MIN(run_id) AS run_id, MIN(start_time) AS start_time,
+           MAX(end_time) AS end_time, COUNT(span_id) AS span_count,
+           CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error
     FROM spans
-    WHERE span_kind = 'evaluator' OR span_kind = 'Evaluator'
+    WHERE (project_id = $1 OR $1 IS NULL)
+    GROUP BY trace_id
     ORDER BY start_time DESC
     LIMIT 50
 "#;
 
+const LIST_EVALS_SQL_SQLITE: &str = r#"
+    SELECT trace_id, span_id, name, start_time, status, attributes
+    FROM spans
+    WHERE (span_kind = 'evaluator' OR span_kind = 'Evaluator')
+      AND (project_id = ? OR ? IS NULL)
+    ORDER BY start_time DESC
+    LIMIT 50
+"#;
+
+const LIST_EVALS_SQL_PG: &str = r#"
+    SELECT trace_id, span_id, name, start_time, status, attributes
+    FROM spans
+    WHERE (span_kind = 'evaluator' OR span_kind = 'Evaluator')
+      AND (project_id = $1 OR $1 IS NULL)
+    ORDER BY start_time DESC
+    LIMIT 50
+"#;
+
+const GET_TRACE_SQL_SQLITE: &str =
+    "SELECT * FROM spans WHERE trace_id = ? AND (project_id = ? OR ? IS NULL) ORDER BY start_time ASC";
+
+const GET_TRACE_SQL_PG: &str =
+    "SELECT * FROM spans WHERE trace_id = $1 AND (project_id = $2 OR $2 IS NULL) ORDER BY start_time ASC";
+
 async fn list_traces(
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let project = authorize(&state, &headers)?.project().map(str::to_string);
     let mut traces = Vec::new();
     match &state.pool {
         DbPool::Sqlite(pool) => {
-            let rows = sqlx::query(LIST_TRACES_SQL)
+            let rows = sqlx::query(LIST_TRACES_SQL_SQLITE)
+                .bind(project.clone())
+                .bind(project)
                 .fetch_all(pool)
                 .await
                 .map_err(db_error)?;
@@ -290,7 +330,8 @@ async fn list_traces(
             }
         }
         DbPool::Postgres(pool) => {
-            let rows = sqlx::query(LIST_TRACES_SQL)
+            let rows = sqlx::query(LIST_TRACES_SQL_PG)
+                .bind(project)
                 .fetch_all(pool)
                 .await
                 .map_err(db_error)?;
@@ -303,12 +344,16 @@ async fn list_traces(
 }
 
 async fn list_evals(
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let project = authorize(&state, &headers)?.project().map(str::to_string);
     let mut evals = Vec::new();
     match &state.pool {
         DbPool::Sqlite(pool) => {
-            let rows = sqlx::query(LIST_EVALS_SQL)
+            let rows = sqlx::query(LIST_EVALS_SQL_SQLITE)
+                .bind(project.clone())
+                .bind(project)
                 .fetch_all(pool)
                 .await
                 .map_err(db_error)?;
@@ -317,7 +362,8 @@ async fn list_evals(
             }
         }
         DbPool::Postgres(pool) => {
-            let rows = sqlx::query(LIST_EVALS_SQL)
+            let rows = sqlx::query(LIST_EVALS_SQL_PG)
+                .bind(project)
                 .fetch_all(pool)
                 .await
                 .map_err(db_error)?;
@@ -331,29 +377,31 @@ async fn list_evals(
 
 async fn get_trace(
     Path(trace_id): Path<String>,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let project = authorize(&state, &headers)?.project().map(str::to_string);
     let mut spans = Vec::new();
-    // Identical query bar the placeholder dialect (`?` vs `$1`).
     match &state.pool {
         DbPool::Sqlite(pool) => {
-            let rows =
-                sqlx::query("SELECT * FROM spans WHERE trace_id = ? ORDER BY start_time ASC")
-                    .bind(trace_id)
-                    .fetch_all(pool)
-                    .await
-                    .map_err(db_error)?;
+            let rows = sqlx::query(GET_TRACE_SQL_SQLITE)
+                .bind(trace_id)
+                .bind(project.clone())
+                .bind(project)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
             for row in &rows {
                 spans.push(span_detail_json!(row));
             }
         }
         DbPool::Postgres(pool) => {
-            let rows =
-                sqlx::query("SELECT * FROM spans WHERE trace_id = $1 ORDER BY start_time ASC")
-                    .bind(trace_id)
-                    .fetch_all(pool)
-                    .await
-                    .map_err(db_error)?;
+            let rows = sqlx::query(GET_TRACE_SQL_PG)
+                .bind(trace_id)
+                .bind(project)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
             for row in &rows {
                 spans.push(span_detail_json!(row));
             }

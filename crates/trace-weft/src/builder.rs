@@ -24,6 +24,7 @@ impl SpanBuilder {
                 run_id: RunId(Uuid::now_v7()),
                 session_id: None,
                 user_id_hash: None,
+                project_id: None,
                 span_kind: kind,
                 name: name.into(),
                 start_time: now,

@@ -110,6 +110,7 @@ async fn postgres_query_endpoints_match_sqlite_shape() {
         )),
         trace_store: Arc::new(recorder),
         clickhouse: None,
+        auth: Arc::new(trace_weft_server::auth::AuthConfig::new(Vec::new(), true)),
     };
     let app = build_router(state);
 

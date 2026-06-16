@@ -145,6 +145,7 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
                 run_id: trace_weft::RunId(trace_weft::uuid::Uuid::now_v7()),
                 session_id: None,
                 user_id_hash: None,
+                project_id: None,
                 span_kind: trace_weft::TraceWeftSpanKind::#kind,
                 name: stringify!(#name).to_string(),
                 start_time: std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as u64,
