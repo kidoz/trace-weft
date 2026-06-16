@@ -35,7 +35,10 @@ async fn main() -> anyhow::Result<()> {
             println!("Reading traces from: {}", db_path.display());
 
             let blob_dir = PathBuf::from("./.trace-weft/blobs");
-            trace_weft_server::start_server(&db_path.to_string_lossy(), *port, blob_dir).await?;
+            // `dev` is the local-first command: the auth bypass defaults on when
+            // no keys are configured (set TRACE_WEFT_API_KEYS to enforce auth).
+            trace_weft_server::start_dev_server(&db_path.to_string_lossy(), *port, blob_dir)
+                .await?;
         }
     }
 

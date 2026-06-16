@@ -56,6 +56,7 @@ impl ServerControl {
                     &info.db_path,
                     info.port,
                     PathBuf::from(&info.blob_dir),
+                    trace_weft_server::auth::AuthConfig::from_env_local_first(),
                     shutdown,
                 )
                 .await

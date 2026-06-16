@@ -273,7 +273,11 @@ async fn post_batch(app: &Router, spans: &[SpanRecord], key: Option<&str>) -> St
         builder = builder.header("Authorization", format!("Bearer {key}"));
     }
     app.clone()
-        .oneshot(builder.body(Body::from(serde_json::to_vec(spans).unwrap())).unwrap())
+        .oneshot(
+            builder
+                .body(Body::from(serde_json::to_vec(spans).unwrap()))
+                .unwrap(),
+        )
         .await
         .unwrap()
         .status()
@@ -323,6 +327,34 @@ async fn queries_without_a_valid_key_are_rejected_outside_dev_mode() {
 }
 
 #[tokio::test]
+async fn hitl_endpoints_require_auth_outside_dev_mode() {
+    let dir = TempDir::new().unwrap();
+    let auth = AuthConfig::new(vec![("tw-secret".to_string(), "proj_a".to_string())], false);
+    let (app, _recorder) = test_app_with_auth(dir.path(), auth).await;
+
+    // Pending list is gated.
+    let (status, _) = get_json_auth(&app, "/api/hitl/pending", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // Resolve is gated too (no auth header → 401, not NOT_FOUND).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/hitl/resolve")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({"span_id": "x", "action": "reject"}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
 async fn trace_queries_are_scoped_to_the_authenticated_project() {
     let dir = TempDir::new().unwrap();
     let auth = AuthConfig::new(
@@ -357,12 +389,8 @@ async fn trace_queries_are_scoped_to_the_authenticated_project() {
     assert_eq!(traces[0]["trace_id"], serde_json::json!(alpha_trace));
 
     // And cannot read beta's trace by id (scoped out → empty).
-    let (status, detail) = get_json_auth(
-        &app,
-        &format!("/api/traces/{beta_trace}"),
-        Some("tw-alpha"),
-    )
-    .await;
+    let (status, detail) =
+        get_json_auth(&app, &format!("/api/traces/{beta_trace}"), Some("tw-alpha")).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail.as_array().unwrap().len(), 0);
 
@@ -379,7 +407,11 @@ async fn server_starts_serves_and_shuts_down_gracefully() {
     use std::time::Duration;
 
     let dir = TempDir::new().unwrap();
-    let db = dir.path().join("traces.sqlite").to_string_lossy().into_owned();
+    let db = dir
+        .path()
+        .join("traces.sqlite")
+        .to_string_lossy()
+        .into_owned();
     let blob_dir = dir.path().join("blobs");
 
     // Grab a free port, then release it so the server can bind it.
@@ -391,9 +423,15 @@ async fn server_starts_serves_and_shuts_down_gracefully() {
 
     let (tx, rx) = tokio::sync::oneshot::channel::<()>();
     let server = tokio::spawn(async move {
-        trace_weft_server::start_server_with_shutdown(&db, port, blob_dir, async move {
-            let _ = rx.await;
-        })
+        trace_weft_server::start_server_with_shutdown(
+            &db,
+            port,
+            blob_dir,
+            AuthConfig::new(Vec::new(), true),
+            async move {
+                let _ = rx.await;
+            },
+        )
         .await
     });
 

@@ -5,14 +5,14 @@ use auth::{Auth, AuthConfig};
 use axum::{
     Json, Router,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     routing::{get, post},
 };
 use sqlx::{PgPool, Row, SqlitePool, postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use trace_weft_core::SpanRecord;
 use trace_weft_recorder::TraceStore;
 
@@ -31,18 +31,43 @@ pub struct AppState {
     pub auth: Arc<AuthConfig>,
 }
 
+/// Start the server with the **production-secure** auth default
+/// ([`AuthConfig::from_env`]): unauthenticated requests are rejected unless
+/// `TRACE_WEFT_API_KEYS`/`TRACE_WEFT_DEV_MODE` are configured. Runs until the
+/// process ends.
 pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow::Result<()> {
-    // No shutdown signal: runs until the process ends.
-    start_server_with_shutdown(db_url, port, blob_dir, std::future::pending::<()>()).await
+    start_server_with_shutdown(
+        db_url,
+        port,
+        blob_dir,
+        AuthConfig::from_env(),
+        std::future::pending::<()>(),
+    )
+    .await
 }
 
-/// Like [`start_server`], but stops gracefully when `shutdown` resolves. Used by
-/// the desktop app to start/stop the embedded server on demand and to drain it
-/// cleanly on app exit.
+/// Start a **local-first** dev server: the auth bypass defaults on when no keys
+/// are configured (see [`AuthConfig::from_env_local_first`]), so the local UI
+/// works without keys. Used by `trace-weft dev`.
+pub async fn start_dev_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow::Result<()> {
+    start_server_with_shutdown(
+        db_url,
+        port,
+        blob_dir,
+        AuthConfig::from_env_local_first(),
+        std::future::pending::<()>(),
+    )
+    .await
+}
+
+/// Start the server with an explicit [`AuthConfig`], stopping gracefully when
+/// `shutdown` resolves. Used by the desktop app to start/stop the embedded
+/// server on demand and to drain it cleanly on app exit.
 pub async fn start_server_with_shutdown(
     db_url: &str,
     port: u16,
     blob_dir: PathBuf,
+    auth: AuthConfig,
     shutdown: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> anyhow::Result<()> {
     let pool = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
@@ -88,10 +113,7 @@ pub async fn start_server_with_shutdown(
         blob_store,
         trace_store,
         clickhouse,
-        // `start_server` is the local-first embedded server (CLI/desktop), so it
-        // defaults the dev bypass on when no keys are configured. Configure
-        // TRACE_WEFT_API_KEYS (or TRACE_WEFT_DEV_MODE=0) to enforce auth.
-        auth: Arc::new(AuthConfig::from_env_local_first()),
+        auth: Arc::new(auth),
     };
 
     let app = build_router(state);
@@ -116,8 +138,33 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/v1/batch", post(batch_ingest))
         .route("/api/hitl/pending", get(get_pending_approvals))
         .route("/api/hitl/resolve", post(resolve_approval))
-        .layer(CorsLayer::permissive())
+        .layer(local_cors())
         .with_state(state)
+}
+
+/// CORS for a local-first server: only the local dev UI and the desktop webview
+/// may read API responses. A permissive policy would let any website the user
+/// visits script `127.0.0.1:<port>` and exfiltrate locally-stored prompts and
+/// tool outputs (and, for JSON `POST`s, drive HITL/ingest via CSRF). Restricting
+/// the allowed origins makes the browser block both.
+fn local_cors() -> CorsLayer {
+    CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+        .allow_origin(AllowOrigin::predicate(|origin: &HeaderValue, _req| {
+            origin.to_str().map(is_allowed_origin).unwrap_or(false)
+        }))
+}
+
+/// Allow the Tauri webview origins and loopback (any port, for the Vite dev
+/// server and direct browser access); reject everything else.
+fn is_allowed_origin(origin: &str) -> bool {
+    if origin == "tauri://localhost" || origin == "http://tauri.localhost" {
+        return true;
+    }
+    ["http://localhost", "http://127.0.0.1"]
+        .iter()
+        .any(|host| origin == *host || origin.starts_with(&format!("{host}:")))
 }
 
 /// Resolve the request's API key to a tenant, or `401` when none is valid and
@@ -323,11 +370,9 @@ const LIST_EVALS_SQL_PG: &str = r#"
     LIMIT 50
 "#;
 
-const GET_TRACE_SQL_SQLITE: &str =
-    "SELECT * FROM spans WHERE trace_id = ? AND (project_id = ? OR ? IS NULL) ORDER BY start_time ASC";
+const GET_TRACE_SQL_SQLITE: &str = "SELECT * FROM spans WHERE trace_id = ? AND (project_id = ? OR ? IS NULL) ORDER BY start_time ASC";
 
-const GET_TRACE_SQL_PG: &str =
-    "SELECT * FROM spans WHERE trace_id = $1 AND (project_id = $2 OR $2 IS NULL) ORDER BY start_time ASC";
+const GET_TRACE_SQL_PG: &str = "SELECT * FROM spans WHERE trace_id = $1 AND (project_id = $2 OR $2 IS NULL) ORDER BY start_time ASC";
 
 async fn list_traces(
     headers: HeaderMap,
@@ -431,7 +476,11 @@ async fn get_trace(
 use serde::Deserialize;
 use trace_weft::hitl::HitlResponse;
 
-async fn get_pending_approvals() -> Result<Json<Vec<String>>, StatusCode> {
+async fn get_pending_approvals(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<String>>, StatusCode> {
+    authorize(&state, &headers)?;
     Ok(Json(trace_weft::hitl::get_pending_approvals()))
 }
 
@@ -443,7 +492,12 @@ struct ResolveRequest {
     reason: Option<String>,
 }
 
-async fn resolve_approval(Json(req): Json<ResolveRequest>) -> Result<StatusCode, StatusCode> {
+async fn resolve_approval(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<ResolveRequest>,
+) -> Result<StatusCode, StatusCode> {
+    authorize(&state, &headers)?;
     let response = if req.action == "approve" {
         HitlResponse::Approved(req.value.unwrap_or(serde_json::json!({})))
     } else {
@@ -454,5 +508,39 @@ async fn resolve_approval(Json(req): Json<ResolveRequest>) -> Result<StatusCode,
         Ok(StatusCode::OK)
     } else {
         Err(StatusCode::NOT_FOUND)
+    }
+}
+
+#[cfg(test)]
+mod cors_tests {
+    use super::is_allowed_origin;
+
+    #[test]
+    fn allows_local_ui_and_tauri_origins() {
+        for origin in [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://localhost",
+            "http://127.0.0.1",
+            "tauri://localhost",
+            "http://tauri.localhost",
+        ] {
+            assert!(is_allowed_origin(origin), "{origin} should be allowed");
+        }
+    }
+
+    #[test]
+    fn rejects_external_and_lookalike_origins() {
+        for origin in [
+            "https://evil.example.com",
+            "http://localhost.evil.com",
+            "http://127.0.0.1.evil.com",
+            "https://localhost:5173",
+            "http://evil.com",
+            "null",
+        ] {
+            assert!(!is_allowed_origin(origin), "{origin} should be rejected");
+        }
     }
 }
