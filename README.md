@@ -7,6 +7,16 @@
 >
 > TraceWeft is local-first by default: run a Rust agent, open the local debugger, and inspect the full execution without sending prompts or tool outputs to a SaaS service.
 
+## Screenshots
+
+The local trace workbench (`trace-weft dev` plus the web UI):
+
+![Runs list showing recent traces with status, span count, and duration](docs/screenshots/main.png)
+
+| Span tree & inspector | Trace graph |
+| --- | --- |
+| ![Trace detail span tree with the raw attribute inspector](docs/screenshots/trace-details.png) | ![Trace detail node-graph view of the same span](docs/screenshots/trace-graph.png) |
+
 ## Install
 
 TraceWeft is not yet published to crates.io. Depend on it by git, pinning a
