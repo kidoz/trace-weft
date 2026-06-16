@@ -42,21 +42,15 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    /// Build from environment:
+    /// Build from environment with a **secure default** (dev bypass off):
     /// - `TRACE_WEFT_API_KEYS`: comma-separated `raw_key:project_id` pairs.
-    /// - `TRACE_WEFT_DEV_MODE=1` (or `true`): enable the dev bypass (off by
-    ///   default).
+    /// - `TRACE_WEFT_DEV_MODE=1`/`true` (or `0`/`false`): toggle the dev bypass.
+    ///
+    /// With no keys and the bypass off, every request is rejected — use this for
+    /// production deployments where unauthenticated access must be denied.
     pub fn from_env() -> Self {
-        let pairs = std::env::var("TRACE_WEFT_API_KEYS").unwrap_or_default();
-        let raw_keys = pairs.split(',').filter_map(|pair| {
-            let (key, project) = pair.trim().split_once(':')?;
-            let (key, project) = (key.trim(), project.trim());
-            (!key.is_empty() && !project.is_empty()).then(|| (key.to_string(), project.to_string()))
-        });
-        let dev_mode = matches!(
-            std::env::var("TRACE_WEFT_DEV_MODE").as_deref(),
-            Ok("1") | Ok("true")
-        );
+        let raw_keys = raw_keys_from_env();
+        let dev_mode = dev_mode_from_env().unwrap_or(false);
         let config = Self::new(raw_keys, dev_mode);
         if config.keys.is_empty() && !dev_mode {
             tracing::warn!(
@@ -65,6 +59,18 @@ impl AuthConfig {
             );
         }
         config
+    }
+
+    /// Build from environment for **local-first entry points** (CLI/desktop).
+    ///
+    /// Same env vars as [`from_env`], but when no keys are configured and the
+    /// operator hasn't explicitly set `TRACE_WEFT_DEV_MODE`, the dev bypass
+    /// defaults **on** so the local UI works without keys. Configuring keys (or
+    /// setting `TRACE_WEFT_DEV_MODE=0`) restores enforcement.
+    pub fn from_env_local_first() -> Self {
+        let raw_keys = raw_keys_from_env();
+        let dev_mode = dev_mode_from_env().unwrap_or(raw_keys.is_empty());
+        Self::new(raw_keys, dev_mode)
     }
 
     /// Construct from raw `(key, project_id)` pairs, hashing each key. Raw keys
@@ -100,6 +106,31 @@ impl AuthConfig {
             }
         }
         matched
+    }
+}
+
+/// Parse `TRACE_WEFT_API_KEYS` (`raw_key:project_id`, comma-separated) into raw
+/// pairs. Hashing happens later in [`AuthConfig::new`].
+fn raw_keys_from_env() -> Vec<(String, String)> {
+    std::env::var("TRACE_WEFT_API_KEYS")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|pair| {
+            let (key, project) = pair.trim().split_once(':')?;
+            let (key, project) = (key.trim(), project.trim());
+            (!key.is_empty() && !project.is_empty())
+                .then(|| (key.to_string(), project.to_string()))
+        })
+        .collect()
+}
+
+/// `Some(true/false)` when `TRACE_WEFT_DEV_MODE` is set to a recognized value,
+/// `None` when unset or unrecognized (caller picks the default).
+fn dev_mode_from_env() -> Option<bool> {
+    match std::env::var("TRACE_WEFT_DEV_MODE").as_deref() {
+        Ok("1") | Ok("true") => Some(true),
+        Ok("0") | Ok("false") => Some(false),
+        _ => None,
     }
 }
 
@@ -193,6 +224,44 @@ mod tests {
             dev.authenticate(&headers_with("Bearer tw-nope")),
             Some(Auth::DevBypass)
         );
+    }
+
+    #[test]
+    fn local_first_defaults_bypass_on_only_without_keys() {
+        // Mutating process env; this is the only test here that reads it.
+        unsafe {
+            std::env::remove_var("TRACE_WEFT_DEV_MODE");
+            std::env::remove_var("TRACE_WEFT_API_KEYS");
+        }
+
+        // No keys, no explicit dev flag → bypass defaults on (frictionless).
+        assert_eq!(
+            AuthConfig::from_env_local_first().authenticate(&HeaderMap::new()),
+            Some(Auth::DevBypass)
+        );
+        // Production default stays closed.
+        assert_eq!(AuthConfig::from_env().authenticate(&HeaderMap::new()), None);
+
+        // Configuring keys flips local-first back to enforcement.
+        unsafe { std::env::set_var("TRACE_WEFT_API_KEYS", "tw-x:proj_x") }
+        let local = AuthConfig::from_env_local_first();
+        assert_eq!(local.authenticate(&HeaderMap::new()), None);
+        assert_eq!(
+            local.authenticate(&headers_with("Bearer tw-x")),
+            Some(Auth::Project("proj_x".to_string()))
+        );
+
+        // An explicit dev flag wins even with keys present.
+        unsafe { std::env::set_var("TRACE_WEFT_DEV_MODE", "1") }
+        assert_eq!(
+            AuthConfig::from_env_local_first().authenticate(&HeaderMap::new()),
+            Some(Auth::DevBypass)
+        );
+
+        unsafe {
+            std::env::remove_var("TRACE_WEFT_DEV_MODE");
+            std::env::remove_var("TRACE_WEFT_API_KEYS");
+        }
     }
 
     #[test]

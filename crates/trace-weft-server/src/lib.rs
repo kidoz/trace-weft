@@ -75,7 +75,10 @@ pub async fn start_server(db_url: &str, port: u16, blob_dir: PathBuf) -> anyhow:
         blob_store,
         trace_store,
         clickhouse,
-        auth: Arc::new(AuthConfig::from_env()),
+        // `start_server` is the local-first embedded server (CLI/desktop), so it
+        // defaults the dev bypass on when no keys are configured. Configure
+        // TRACE_WEFT_API_KEYS (or TRACE_WEFT_DEV_MODE=0) to enforce auth.
+        auth: Arc::new(AuthConfig::from_env_local_first()),
     };
 
     let app = build_router(state);
