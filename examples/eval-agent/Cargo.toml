@@ -5,8 +5,8 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-trace-weft = { path = "../../crates/trace-weft" }
-trace-weft-core = { path = "../../crates/trace-weft-core" }
+trace-weft = { version = "0.2.0", path = "../../crates/trace-weft" }
+trace-weft-core = { version = "0.2.0", path = "../../crates/trace-weft-core" }
 tokio = { workspace = true, features = ["full"] }
 anyhow.workspace = true
 serde_json.workspace = true

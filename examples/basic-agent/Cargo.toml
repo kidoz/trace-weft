@@ -5,6 +5,6 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-trace-weft = { path = "../../crates/trace-weft" }
+trace-weft = { version = "0.2.0", path = "../../crates/trace-weft" }
 tokio = { workspace = true, features = ["full"] }
 anyhow.workspace = true

@@ -5,9 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-trace-weft-core = { path = "../trace-weft-core" }
-trace-weft = { path = "../trace-weft" }
-trace-weft-recorder = { path = "../trace-weft-recorder" }
+trace-weft-core = { version = "0.2.0", path = "../trace-weft-core" }
+trace-weft = { version = "0.2.0", path = "../trace-weft" }
+trace-weft-recorder = { version = "0.2.0", path = "../trace-weft-recorder" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
@@ -26,5 +26,5 @@ subtle = "2.6"
 [dev-dependencies]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
-trace-weft-core = { path = "../trace-weft-core", features = ["test-util"] }
+trace-weft-core = { version = "0.2.0", path = "../trace-weft-core", features = ["test-util"] }
 uuid.workspace = true
