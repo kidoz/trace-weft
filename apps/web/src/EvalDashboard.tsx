@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ClipboardCheck } from 'lucide-react';
+import { apiUrl } from './api';
 import { StatusBadge } from './IconSystem';
 
 export interface EvalSummary {
@@ -16,7 +17,7 @@ export function EvalDashboard({ onSelectTrace }: { onSelectTrace: (id: string) =
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://127.0.0.1:3000/api/evals')
+    fetch(apiUrl('/api/evals'))
       .then((res) => res.json())
       .then((data: EvalSummary[]) => {
         setEvals(data);

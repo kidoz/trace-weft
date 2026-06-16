@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Database, GitCompareArrows, Timer, Workflow } from 'lucide-react';
+import { apiUrl } from './api';
 import { navigationIcons } from './IconRegistry';
 import { MetricPill, StatusBadge } from './IconSystem';
 
@@ -24,7 +25,7 @@ export function TraceList({
   const [selectedForDiff, setSelectedForDiff] = useState<string[]>([]);
 
   useEffect(() => {
-    fetch('http://127.0.0.1:3000/api/traces')
+    fetch(apiUrl('/api/traces'))
       .then((res) => res.json())
       .then((data) => {
         setTraces(data);

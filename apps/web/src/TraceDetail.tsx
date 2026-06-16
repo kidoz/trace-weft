@@ -6,6 +6,7 @@ import { TokenHeatmap } from './TokenHeatmap';
 import { MemoryDiff } from './MemoryDiff';
 import { navigationIcons } from './IconRegistry';
 import { MetricPill, SpanKindBadge } from './IconSystem';
+import { apiUrl } from './api';
 
 export interface Span {
   trace_id: string;
@@ -37,7 +38,7 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
   const [selectedSpan, setSelectedSpan] = useState<Span | null>(null);
 
   useEffect(() => {
-    fetch(`http://127.0.0.1:3000/api/traces/${traceId}`)
+    fetch(apiUrl(`/api/traces/${traceId}`))
       .then((res) => res.json())
       .then((data: Span[]) => {
         setSpans(data);

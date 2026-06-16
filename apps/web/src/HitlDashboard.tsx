@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle2, ShieldAlert, XCircle } from 'lucide-react';
+import { apiUrl } from './api';
 
 export function HitlDashboard() {
   const [pendingIds, setPendingIds] = useState<string[]>([]);
@@ -10,7 +11,7 @@ export function HitlDashboard() {
   useEffect(() => {
     const fetchPending = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:3000/api/hitl/pending');
+        const res = await fetch(apiUrl('/api/hitl/pending'));
         if (res.ok) {
           const ids = (await res.json()) as string[];
           setPendingIds(ids);
@@ -46,7 +47,7 @@ export function HitlDashboard() {
     }
 
     try {
-      await fetch('http://127.0.0.1:3000/api/hitl/resolve', {
+      await fetch(apiUrl('/api/hitl/resolve'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

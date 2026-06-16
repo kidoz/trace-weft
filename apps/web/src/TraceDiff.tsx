@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ArrowLeft, GitCompareArrows } from 'lucide-react';
 import type { Span } from './TraceDetail';
 import { SpanKindBadge, StatusBadge } from './IconSystem';
+import { apiUrl } from './api';
 
 export function TraceDiff({
   traceA,
@@ -18,8 +19,8 @@ export function TraceDiff({
 
   useEffect(() => {
     Promise.all([
-      fetch(`http://127.0.0.1:3000/api/traces/${traceA}`).then((res) => res.json()),
-      fetch(`http://127.0.0.1:3000/api/traces/${traceB}`).then((res) => res.json()),
+      fetch(apiUrl(`/api/traces/${traceA}`)).then((res) => res.json()),
+      fetch(apiUrl(`/api/traces/${traceB}`)).then((res) => res.json()),
     ])
       .then(([dataA, dataB]) => {
         setSpansA(dataA);
