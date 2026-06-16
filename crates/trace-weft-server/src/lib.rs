@@ -144,112 +144,83 @@ async fn batch_ingest(
     Ok(StatusCode::ACCEPTED)
 }
 
-async fn list_traces(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
-    let DbPool::Sqlite(pool) = &state.pool else {
-        // Not implemented for Postgres yet
-        return Err(StatusCode::NOT_IMPLEMENTED);
-    };
-
-    let rows = sqlx::query(
-        r#"
-        SELECT trace_id, run_id, MIN(start_time) as start_time, MAX(end_time) as end_time, 
-               COUNT(span_id) as span_count, status
-        FROM spans
-        GROUP BY trace_id
-        ORDER BY start_time DESC
-        LIMIT 50
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let traces = rows
-        .into_iter()
-        .map(|row| {
-            let trace_id: String = row.get("trace_id");
-            let run_id: String = row.get("run_id");
-            let start_time: i64 = row.get("start_time");
-            let end_time: Option<i64> = row.get("end_time");
-            let span_count: i64 = row.get("span_count");
-            let status: String = row.get("status");
-
-            serde_json::json!({
-                "trace_id": trace_id,
-                "run_id": run_id,
-                "start_time": start_time,
-                "end_time": end_time,
-                "span_count": span_count,
-                "status": status,
-            })
-        })
-        .collect();
-
-    Ok(Json(traces))
+/// Log a database error and surface it as a 500. Used by every query handler so
+/// failures are recorded rather than silently flattened to an empty body.
+fn db_error<E: std::fmt::Display>(e: E) -> StatusCode {
+    tracing::error!("database query failed: {e}");
+    StatusCode::INTERNAL_SERVER_ERROR
 }
 
-async fn list_evals(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
-    let DbPool::Sqlite(pool) = &state.pool else {
-        return Err(StatusCode::NOT_IMPLEMENTED);
-    };
-
-    let rows = sqlx::query(
-        r#"
-        SELECT trace_id, span_id, name, start_time, status, attributes
-        FROM spans
-        WHERE span_kind = 'evaluator' OR span_kind = 'Evaluator'
-        ORDER BY start_time DESC
-        LIMIT 50
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let evals = rows
-        .into_iter()
-        .map(|row| {
-            let trace_id: String = row.get("trace_id");
-            let span_id: String = row.get("span_id");
-            let name: String = row.get("name");
-            let start_time: i64 = row.get("start_time");
-            let status: String = row.get("status");
-            let attributes: String = row.get("attributes");
-
-            serde_json::json!({
-                "trace_id": trace_id,
-                "span_id": span_id,
-                "name": name,
-                "start_time": start_time,
-                "status": status,
-                "attributes": serde_json::from_str::<serde_json::Value>(&attributes).unwrap_or(serde_json::json!({})),
-            })
-        })
-        .collect();
-
-    Ok(Json(evals))
+/// Decode a JSON column we wrote ourselves. A parse failure means the row is
+/// corrupt, so we surface a 500 instead of masking it with an empty object —
+/// silently substituting `{}` would hide data loss from the caller.
+fn parse_json_column(raw: &str) -> Result<serde_json::Value, StatusCode> {
+    serde_json::from_str(raw).map_err(|e| {
+        tracing::error!("corrupt JSON in spans column: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })
 }
 
-async fn get_trace(
-    Path(trace_id): Path<String>,
-    State(state): State<AppState>,
-) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
-    let DbPool::Sqlite(pool) = &state.pool else {
-        return Err(StatusCode::NOT_IMPLEMENTED);
-    };
+/// Decode a nullable JSON column, preserving SQL `NULL` as JSON `null`.
+fn parse_opt_json_column(raw: Option<String>) -> Result<serde_json::Value, StatusCode> {
+    match raw {
+        Some(s) => parse_json_column(&s),
+        None => Ok(serde_json::Value::Null),
+    }
+}
 
-    let rows = sqlx::query("SELECT * FROM spans WHERE trace_id = ? ORDER BY start_time ASC")
-        .bind(trace_id)
-        .fetch_all(pool)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+// The SQLite and Postgres `spans` tables share an identical column layout, so a
+// single row shape maps to JSON for either backend. These macros expand the
+// same extraction against `SqliteRow` or `PgRow` (the `?` inside propagates to
+// the calling handler), keeping the two dialects from drifting apart.
 
-    let mut spans = Vec::new();
-    for row in rows {
+/// One row of the trace-summary aggregate (see `list_traces`).
+macro_rules! trace_summary_json {
+    ($row:expr) => {{
+        let row = $row;
+        let trace_id: String = row.get("trace_id");
+        let run_id: String = row.get("run_id");
+        let start_time: i64 = row.get("start_time");
+        let end_time: Option<i64> = row.get("end_time");
+        let span_count: i64 = row.get("span_count");
+        let has_error: i64 = row.get("has_error");
+        serde_json::json!({
+            "trace_id": trace_id,
+            "run_id": run_id,
+            "start_time": start_time,
+            "end_time": end_time,
+            "span_count": span_count,
+            // A trace is errored if any of its spans errored, otherwise ok.
+            "status": if has_error != 0 { "error" } else { "ok" },
+        })
+    }};
+}
+
+/// One evaluator span row (see `list_evals`).
+macro_rules! eval_row_json {
+    ($row:expr) => {{
+        let row = $row;
+        let trace_id: String = row.get("trace_id");
+        let span_id: String = row.get("span_id");
+        let name: String = row.get("name");
+        let start_time: i64 = row.get("start_time");
+        let status: String = row.get("status");
+        let attributes: String = row.get("attributes");
+        serde_json::json!({
+            "trace_id": trace_id,
+            "span_id": span_id,
+            "name": name,
+            "start_time": start_time,
+            "status": status,
+            "attributes": parse_json_column(&attributes)?,
+        })
+    }};
+}
+
+/// One full span row (see `get_trace`).
+macro_rules! span_detail_json {
+    ($row:expr) => {{
+        let row = $row;
         let trace_id: String = row.get("trace_id");
         let span_id: String = row.get("span_id");
         let parent_span_id: Option<String> = row.get("parent_span_id");
@@ -262,8 +233,7 @@ async fn get_trace(
         let latency_ms: Option<i64> = row.get("latency_ms");
         let input_ref: Option<String> = row.get("input_ref");
         let output_ref: Option<String> = row.get("output_ref");
-
-        spans.push(serde_json::json!({
+        serde_json::json!({
             "trace_id": trace_id,
             "span_id": span_id,
             "parent_span_id": parent_span_id,
@@ -272,13 +242,123 @@ async fn get_trace(
             "start_time": start_time,
             "end_time": end_time,
             "status": status,
-            "attributes": serde_json::from_str::<serde_json::Value>(&attributes).unwrap_or(serde_json::json!({})),
+            "attributes": parse_json_column(&attributes)?,
             "latency_ms": latency_ms,
-            "input_ref": input_ref.and_then(|r| serde_json::from_str::<serde_json::Value>(&r).ok()),
-            "output_ref": output_ref.and_then(|r| serde_json::from_str::<serde_json::Value>(&r).ok()),
-        }));
-    }
+            "input_ref": parse_opt_json_column(input_ref)?,
+            "output_ref": parse_opt_json_column(output_ref)?,
+        })
+    }};
+}
 
+// Portable across SQLite and Postgres: every span of a trace shares a run_id,
+// so MIN(run_id) is deterministic, and the error rollup is cast to BIGINT so
+// both engines decode it as i64. Selecting only grouped/aggregated columns
+// keeps Postgres (which rejects bare columns under GROUP BY) happy.
+const LIST_TRACES_SQL: &str = r#"
+    SELECT trace_id,
+           MIN(run_id) AS run_id,
+           MIN(start_time) AS start_time,
+           MAX(end_time) AS end_time,
+           COUNT(span_id) AS span_count,
+           CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error
+    FROM spans
+    GROUP BY trace_id
+    ORDER BY start_time DESC
+    LIMIT 50
+"#;
+
+const LIST_EVALS_SQL: &str = r#"
+    SELECT trace_id, span_id, name, start_time, status, attributes
+    FROM spans
+    WHERE span_kind = 'evaluator' OR span_kind = 'Evaluator'
+    ORDER BY start_time DESC
+    LIMIT 50
+"#;
+
+async fn list_traces(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let mut traces = Vec::new();
+    match &state.pool {
+        DbPool::Sqlite(pool) => {
+            let rows = sqlx::query(LIST_TRACES_SQL)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
+            for row in &rows {
+                traces.push(trace_summary_json!(row));
+            }
+        }
+        DbPool::Postgres(pool) => {
+            let rows = sqlx::query(LIST_TRACES_SQL)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
+            for row in &rows {
+                traces.push(trace_summary_json!(row));
+            }
+        }
+    }
+    Ok(Json(traces))
+}
+
+async fn list_evals(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let mut evals = Vec::new();
+    match &state.pool {
+        DbPool::Sqlite(pool) => {
+            let rows = sqlx::query(LIST_EVALS_SQL)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
+            for row in &rows {
+                evals.push(eval_row_json!(row));
+            }
+        }
+        DbPool::Postgres(pool) => {
+            let rows = sqlx::query(LIST_EVALS_SQL)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
+            for row in &rows {
+                evals.push(eval_row_json!(row));
+            }
+        }
+    }
+    Ok(Json(evals))
+}
+
+async fn get_trace(
+    Path(trace_id): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let mut spans = Vec::new();
+    // Identical query bar the placeholder dialect (`?` vs `$1`).
+    match &state.pool {
+        DbPool::Sqlite(pool) => {
+            let rows =
+                sqlx::query("SELECT * FROM spans WHERE trace_id = ? ORDER BY start_time ASC")
+                    .bind(trace_id)
+                    .fetch_all(pool)
+                    .await
+                    .map_err(db_error)?;
+            for row in &rows {
+                spans.push(span_detail_json!(row));
+            }
+        }
+        DbPool::Postgres(pool) => {
+            let rows =
+                sqlx::query("SELECT * FROM spans WHERE trace_id = $1 ORDER BY start_time ASC")
+                    .bind(trace_id)
+                    .fetch_all(pool)
+                    .await
+                    .map_err(db_error)?;
+            for row in &rows {
+                spans.push(span_detail_json!(row));
+            }
+        }
+    }
     Ok(Json(spans))
 }
 
