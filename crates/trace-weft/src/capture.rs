@@ -9,10 +9,11 @@
 //! `init_local` does for you), [`capture_enabled`] is `false` and nothing is
 //! serialized or stored, so a `MetadataOnly` deployment pays no cost.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::OnceCell;
 use trace_weft_core::{
-    BlobHash, BlobRef, BlobStore, CapturePolicy, RedactionStatus, redactor::ArcRedactor,
+    BlobHash, BlobRef, BlobStore, CapturePolicy, RedactionResult, RedactionStatus, Redactor,
+    redactor::{ArcRedactor, RegexRedactor},
 };
 
 const PREVIEW_MAX_BYTES: usize = 512;
@@ -27,6 +28,7 @@ pub struct CaptureConfig {
 }
 
 static CAPTURE: OnceCell<CaptureConfig> = OnceCell::const_new();
+static FALLBACK_REDACTOR: OnceLock<RegexRedactor> = OnceLock::new();
 
 /// Install the process-wide capture configuration. Errors if already set.
 pub fn init_capture(config: CaptureConfig) -> anyhow::Result<()> {
@@ -54,6 +56,21 @@ pub fn capture_policy() -> CapturePolicy {
         .unwrap_or(CapturePolicy::MetadataOnly)
 }
 
+/// Redact text with the configured redactor, falling back to the default regex
+/// redactor even when content capture has not been initialized.
+///
+/// This keeps metadata-only traces from leaking secrets through error strings
+/// or status messages while still avoiding input/output blob capture.
+pub fn redact_text(input: &str) -> RedactionResult {
+    if let Some(cfg) = CAPTURE.get() {
+        return cfg.redactor.redact(input);
+    }
+
+    FALLBACK_REDACTOR
+        .get_or_init(RegexRedactor::default)
+        .redact(input)
+}
+
 /// Serialize already-built JSON content into a stored blob and return a
 /// [`BlobRef`] describing it, honoring the configured policy. Returns `None`
 /// when capture is disabled.
@@ -64,20 +81,8 @@ pub async fn capture_json(content_type: &str, value: serde_json::Value) -> Optio
     }
 
     let raw = serde_json::to_vec(&value).ok()?;
-    let raw_text = String::from_utf8_lossy(&raw);
-
-    let (stored_bytes, redaction_status, preview_text) = match cfg.policy {
-        CapturePolicy::RedactedPreview => {
-            let result = cfg.redactor.redact(&raw_text);
-            let preview = preview(&result.redacted_text);
-            (result.redacted_text.into_bytes(), result.status, preview)
-        }
-        CapturePolicy::FullContentLocalOnly | CapturePolicy::FullContentExportable => {
-            let preview = preview(&raw_text);
-            (raw.clone(), RedactionStatus::Unredacted, preview)
-        }
-        CapturePolicy::MetadataOnly => return None,
-    };
+    let (stored_bytes, redaction_status, preview_text) =
+        capture_parts(cfg.policy, &raw, cfg.redactor.as_ref())?;
 
     let hash = BlobHash(sha256_hex(&stored_bytes));
     let size_bytes = stored_bytes.len() as u64;
@@ -97,6 +102,31 @@ pub async fn capture_json(content_type: &str, value: serde_json::Value) -> Optio
         storage_backend: cfg.storage_backend.clone(),
         preview_text_redacted: Some(preview_text),
     })
+}
+
+fn capture_parts(
+    policy: CapturePolicy,
+    raw: &[u8],
+    redactor: &dyn Redactor,
+) -> Option<(Vec<u8>, RedactionStatus, String)> {
+    let raw_text = String::from_utf8_lossy(raw);
+    let redacted = redactor.redact(&raw_text);
+
+    match policy {
+        CapturePolicy::RedactedPreview => {
+            let preview = preview(&redacted.redacted_text);
+            Some((
+                redacted.redacted_text.into_bytes(),
+                redacted.status,
+                preview,
+            ))
+        }
+        CapturePolicy::FullContentLocalOnly | CapturePolicy::FullContentExportable => {
+            let preview = preview(&redacted.redacted_text);
+            Some((raw.to_vec(), RedactionStatus::Unredacted, preview))
+        }
+        CapturePolicy::MetadataOnly => None,
+    }
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
@@ -144,6 +174,7 @@ impl BlobStore for FsBlobStore {
         _content_type: &str,
         content: &[u8],
     ) -> anyhow::Result<()> {
+        tokio::fs::create_dir_all(&self.dir).await?;
         // Hashes are prefixed (`sha256:`); ':' is not portable in filenames.
         let path = self.dir.join(hash.0.replace(':', "_"));
         tokio::fs::write(path, content).await?;
@@ -197,5 +228,54 @@ impl BlobStore for MemoryBlobStore {
 
     async fn get_blob(&self, hash: &BlobHash) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(self.blobs.lock().unwrap().get(&hash.0).cloned())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fallback_redacts_text_without_capture_init() {
+        let result = redact_text("failed with Bearer abc.DEF-123~xyz");
+        assert_eq!(result.redacted_text, "failed with [REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn redacted_preview_stores_only_redacted_bytes() {
+        let redactor = RegexRedactor::default();
+        let (stored, status, preview) = capture_parts(
+            CapturePolicy::RedactedPreview,
+            br#"{"email":"dev@example.com"}"#,
+            &redactor,
+        )
+        .expect("capture enabled");
+
+        assert_eq!(status, RedactionStatus::Redacted);
+        assert_eq!(
+            String::from_utf8(stored).unwrap(),
+            r#"{"email":"[REDACTED]"}"#
+        );
+        assert_eq!(preview, r#"{"email":"[REDACTED]"}"#);
+    }
+
+    #[test]
+    fn full_content_keeps_raw_blob_but_redacts_preview() {
+        let redactor = RegexRedactor::default();
+        let raw = br#"{"email":"dev@example.com"}"#;
+        let (stored, status, preview) =
+            capture_parts(CapturePolicy::FullContentLocalOnly, raw, &redactor)
+                .expect("capture enabled");
+
+        assert_eq!(status, RedactionStatus::Unredacted);
+        assert_eq!(stored, raw);
+        assert_eq!(preview, r#"{"email":"[REDACTED]"}"#);
+    }
+
+    #[test]
+    fn metadata_only_captures_nothing() {
+        let redactor = RegexRedactor::default();
+        assert!(capture_parts(CapturePolicy::MetadataOnly, b"secret", &redactor).is_none());
     }
 }

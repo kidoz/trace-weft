@@ -199,7 +199,7 @@ instrumented function must be `async`.
 | --- | --- |
 | `MetadataOnly` | No content captured (zero serialization cost). |
 | `RedactedPreview` | Redacts content, stores it, sets a redacted preview. |
-| `FullContentLocalOnly` / `FullContentExportable` | Stores full content. |
+| `FullContentLocalOnly` / `FullContentExportable` | Stores full content while keeping the preview redacted. |
 
 Captured content is hashed, written to the blob store, and referenced from the
 span as `input_ref` / `output_ref`.
