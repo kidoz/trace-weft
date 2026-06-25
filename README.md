@@ -94,6 +94,7 @@ let answer = build_llm_call("chat_completion")
     .provider("anthropic")
     .model("claude-fable-5")
     .prompt_version("v3")
+    .input_ref("prompt", &prompt)
     .token_usage(TokenUsage { input: 1200, output: 280, reasoning: None, breakdown: Default::default() })
     .cost(CostEstimate { currency: "USD".into(), amount: 0.012 })
     .cache_hit(false)
@@ -116,9 +117,12 @@ let answer = build_llm_call("chat_completion")
   set one explicitly with `.with_parent(...)`;
 - **replay** — short-circuits to a mocked value when replay is configured.
 
-It does **not** capture inputs/outputs by itself — set `.input_ref()` /
-`.output_ref()` (or use the macros, which capture content for you). For
-closures that don't return `Result`, use `.run_infallible(|| async { ... })`.
+It does **not** infer inputs/outputs by itself — set `.input_ref(label, &value)`
+or `.output_ref(label, &value)` for values you want captured under the active
+`CapturePolicy` (or use the macros, which capture arguments and successful
+returns for you). If you already have a content-addressed blob, use
+`.input_blob_ref(blob_ref)` / `.output_blob_ref(blob_ref)`. For closures that
+don't return `Result`, use `.run_infallible(|| async { ... })`.
 
 Builder setters cover the high-value `SpanRecord` fields: `.provider()`,
 `.model()`, `.prompt_version()`, `.tool_name()`, `.input_ref()`,

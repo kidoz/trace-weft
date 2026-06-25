@@ -1,3 +1,4 @@
+use serde::Serialize;
 use std::collections::HashMap;
 use trace_weft_core::{
     BlobRef, CapturePolicy, CostEstimate, RunId, SpanId, SpanRecord, SpanStatus, TokenUsage,
@@ -7,6 +8,13 @@ use uuid::Uuid;
 
 pub struct SpanBuilder {
     pub span: SpanRecord,
+    pending_input_ref: Option<PendingCapture>,
+    pending_output_ref: Option<PendingCapture>,
+}
+
+struct PendingCapture {
+    label: String,
+    value: serde_json::Value,
 }
 
 impl SpanBuilder {
@@ -55,6 +63,8 @@ impl SpanBuilder {
                 redaction_policy: CapturePolicy::MetadataOnly,
                 schema_version: "1.0".to_string(),
             },
+            pending_input_ref: None,
+            pending_output_ref: None,
         }
     }
 
@@ -78,12 +88,41 @@ impl SpanBuilder {
         self
     }
 
-    pub fn input_ref(mut self, blob_ref: BlobRef) -> Self {
+    /// Capture a serializable input value under `label` when the span runs.
+    ///
+    /// The value is converted to JSON immediately, but the blob is persisted
+    /// inside [`run`](Self::run) / [`run_infallible`](Self::run_infallible) so
+    /// the async blob store can be used without making every setter async.
+    /// When the active capture policy is `MetadataOnly`, no blob is written.
+    pub fn input_ref<T: Serialize>(mut self, label: impl Into<String>, value: &T) -> Self {
+        self.pending_input_ref = Some(PendingCapture {
+            label: label.into(),
+            value: serde_json::to_value(value).unwrap_or(serde_json::Value::Null),
+        });
+        self
+    }
+
+    /// Capture a serializable output value under `label` when the span runs.
+    ///
+    /// This is for callers that already have or can cheaply precompute an
+    /// output-like value. Use macros when you want successful function returns
+    /// captured automatically.
+    pub fn output_ref<T: Serialize>(mut self, label: impl Into<String>, value: &T) -> Self {
+        self.pending_output_ref = Some(PendingCapture {
+            label: label.into(),
+            value: serde_json::to_value(value).unwrap_or(serde_json::Value::Null),
+        });
+        self
+    }
+
+    /// Attach a pre-existing input blob reference without writing new content.
+    pub fn input_blob_ref(mut self, blob_ref: BlobRef) -> Self {
         self.span.input_ref = Some(blob_ref);
         self
     }
 
-    pub fn output_ref(mut self, blob_ref: BlobRef) -> Self {
+    /// Attach a pre-existing output blob reference without writing new content.
+    pub fn output_blob_ref(mut self, blob_ref: BlobRef) -> Self {
         self.span.output_ref = Some(blob_ref);
         self
     }
@@ -131,6 +170,8 @@ impl SpanBuilder {
 
     pub async fn wait_for_approval(mut self) -> Result<crate::hitl::HitlResponse, String> {
         crate::context::link_to_ambient(&mut self.span);
+        self.span.redaction_policy = crate::capture_policy();
+        self.capture_pending_refs().await;
         let span_id = self.span.span_id.0.to_string();
         self.span.status = SpanStatus::PendingApproval;
 
@@ -159,13 +200,15 @@ impl SpanBuilder {
         }
     }
 
-    pub async fn run<F, Fut, T, E>(self, f: F) -> Result<T, E>
+    pub async fn run<F, Fut, T, E>(mut self, f: F) -> Result<T, E>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<T, E>>,
         E: std::fmt::Debug + std::fmt::Display + 'static,
         T: serde::de::DeserializeOwned,
     {
+        self.span.redaction_policy = crate::capture_policy();
+        self.capture_pending_refs().await;
         let mut span = self.span;
         crate::context::link_to_ambient(&mut span);
 
@@ -213,11 +256,13 @@ impl SpanBuilder {
     /// Like [`run`](Self::run) but for closures that don't return `Result`. The
     /// span always completes with `Ok` status. Replay mocking (which is keyed on
     /// deserializing a mocked value) applies only to `run`, not here.
-    pub async fn run_infallible<F, Fut, T>(self, f: F) -> T
+    pub async fn run_infallible<F, Fut, T>(mut self, f: F) -> T
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = T>,
     {
+        self.span.redaction_policy = crate::capture_policy();
+        self.capture_pending_refs().await;
         let mut span = self.span;
         crate::context::link_to_ambient(&mut span);
 
@@ -236,6 +281,25 @@ impl SpanBuilder {
 
         result
     }
+
+    async fn capture_pending_refs(&mut self) {
+        if self.span.input_ref.is_none()
+            && let Some(pending) = self.pending_input_ref.take()
+        {
+            self.span.input_ref = capture_labeled_json(pending).await;
+        }
+        if self.span.output_ref.is_none()
+            && let Some(pending) = self.pending_output_ref.take()
+        {
+            self.span.output_ref = capture_labeled_json(pending).await;
+        }
+    }
+}
+
+async fn capture_labeled_json(pending: PendingCapture) -> Option<BlobRef> {
+    let mut object = serde_json::Map::new();
+    object.insert(pending.label, pending.value);
+    crate::capture_json("application/json", serde_json::Value::Object(object)).await
 }
 
 pub fn llm_call(name: impl Into<String>) -> SpanBuilder {

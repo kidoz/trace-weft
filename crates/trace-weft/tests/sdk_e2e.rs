@@ -13,7 +13,7 @@ use serde::Serialize;
 use trace_weft::capture::MemoryBlobStore;
 use trace_weft::eval::{MemoryStore, TraceTrajectory};
 use trace_weft::{
-    CaptureConfig, CapturePolicy, CostEstimate, EventKind, EventRecord, HitlResponse,
+    BlobStore, CaptureConfig, CapturePolicy, CostEstimate, EventKind, EventRecord, HitlResponse,
     RedactionStatus, ReplayConfig, SpanRecord, SpanStatus, TokenUsage, TraceWeftSpanKind, agent,
     build_agent, build_llm_call, build_tool, event, init_capture, init_replay, llm_call,
     resolve_approval, tool,
@@ -49,6 +49,21 @@ fn recorded_events_named(name: &str) -> Vec<EventRecord> {
         .filter(|e| e.name == name)
         .cloned()
         .collect()
+}
+
+fn capture_blobs() -> &'static MemoryBlobStore {
+    static BLOBS: OnceLock<MemoryBlobStore> = OnceLock::new();
+    BLOBS.get_or_init(|| {
+        let blobs = MemoryBlobStore::new();
+        init_capture(CaptureConfig {
+            policy: CapturePolicy::RedactedPreview,
+            blobs: std::sync::Arc::new(blobs.clone()),
+            redactor: std::sync::Arc::new(trace_weft::redactor::RegexRedactor::default()),
+            storage_backend: "memory".to_string(),
+        })
+        .expect("capture initialized once for the test process");
+        blobs
+    })
 }
 
 #[tokio::test]
@@ -131,6 +146,47 @@ async fn builder_setters_populate_rich_span_fields() {
         span.attributes.get("region"),
         Some(&serde_json::json!("us-east-1"))
     );
+}
+
+#[tokio::test]
+async fn builder_captures_labeled_refs_under_policy() {
+    store();
+    let blobs = capture_blobs();
+
+    build_tool("e2e_builder_capture")
+        .input_ref("query", &serde_json::json!({"email": "dev@example.com"}))
+        .output_ref("result", &serde_json::json!({"phone": "+1 (415) 555-2671"}))
+        .run(|| async { Ok::<_, String>("done".to_string()) })
+        .await
+        .unwrap();
+
+    let spans = recorded_spans_named("e2e_builder_capture");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    assert_eq!(span.redaction_policy, CapturePolicy::RedactedPreview);
+
+    let input = span.input_ref.as_ref().expect("input captured");
+    let input_preview = input.preview_text_redacted.as_ref().unwrap();
+    assert!(input_preview.contains("query"));
+    assert!(input_preview.contains("[REDACTED]"));
+    assert!(!input_preview.contains("dev@example.com"));
+    assert_eq!(input.redaction_status, RedactionStatus::Redacted);
+
+    let output = span.output_ref.as_ref().expect("output captured");
+    let output_preview = output.preview_text_redacted.as_ref().unwrap();
+    assert!(output_preview.contains("result"));
+    assert!(output_preview.contains("[REDACTED]"));
+    assert!(!output_preview.contains("415"));
+    assert_eq!(output.redaction_status, RedactionStatus::Redacted);
+
+    let input_blob = blobs
+        .get_blob(&input.hash)
+        .await
+        .unwrap()
+        .expect("input blob persisted");
+    let input_blob = String::from_utf8(input_blob).unwrap();
+    assert!(input_blob.contains("[REDACTED]"));
+    assert!(!input_blob.contains("dev@example.com"));
 }
 
 #[agent]
@@ -353,15 +409,7 @@ async fn macro_capturing_fn(
 #[tokio::test]
 async fn macros_capture_inputs_and_outputs_under_policy() {
     store();
-    let blobs = MemoryBlobStore::new();
-    // Process-global, set once; this is the only test that enables capture.
-    init_capture(CaptureConfig {
-        policy: CapturePolicy::RedactedPreview,
-        blobs: std::sync::Arc::new(blobs.clone()),
-        redactor: std::sync::Arc::new(trace_weft::redactor::RegexRedactor::default()),
-        storage_backend: "memory".to_string(),
-    })
-    .expect("capture initialized once for the test process");
+    let blobs = capture_blobs();
 
     let out = macro_capturing_fn(
         CapturePayload {
@@ -375,6 +423,7 @@ async fn macros_capture_inputs_and_outputs_under_policy() {
     let spans = recorded_spans_named("macro_capturing_fn");
     assert_eq!(spans.len(), 1);
     let span = &spans[0];
+    assert_eq!(span.redaction_policy, CapturePolicy::RedactedPreview);
 
     let input = span.input_ref.as_ref().expect("input captured");
     let preview = input.preview_text_redacted.as_ref().unwrap();

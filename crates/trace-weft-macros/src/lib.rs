@@ -173,7 +173,7 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
                 latency_ms: None,
                 retry_count: None,
                 cache_hit: None,
-                redaction_policy: trace_weft::CapturePolicy::MetadataOnly,
+                redaction_policy: trace_weft::capture_policy(),
                 schema_version: "1.0".to_string(),
             };
 

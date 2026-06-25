@@ -45,6 +45,15 @@ pub fn capture_enabled() -> bool {
         .is_some_and(|c| !matches!(c.policy, CapturePolicy::MetadataOnly))
 }
 
+/// The active process-wide capture policy, or [`CapturePolicy::MetadataOnly`]
+/// when capture has not been initialized.
+pub fn capture_policy() -> CapturePolicy {
+    CAPTURE
+        .get()
+        .map(|c| c.policy)
+        .unwrap_or(CapturePolicy::MetadataOnly)
+}
+
 /// Serialize already-built JSON content into a stored blob and return a
 /// [`BlobRef`] describing it, honoring the configured policy. Returns `None`
 /// when capture is disabled.
