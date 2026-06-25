@@ -1,7 +1,7 @@
 # TraceWeft
 
 [![Language](https://img.shields.io/badge/language-Rust-blue.svg)](https://www.rust-lang.org/)
-[![Rust Version](https://img.shields.io/badge/rust-1.94.1%2B-orange.svg)](https://www.rust-lang.org/)
+[![Rust Version](https://img.shields.io/badge/rust-1.96%2B-orange.svg)](https://www.rust-lang.org/)
 [![Edition](https://img.shields.io/badge/edition-2024-orange.svg)](https://doc.rust-lang.org/edition-guide/rust-2024/index.html)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://github.com/kidoz/trace-weft/blob/main/LICENSE)
 
@@ -37,7 +37,7 @@ a pure local-JSONL integrator that pulls no `sqlx`:
 trace-weft = { git = "https://github.com/kidoz/trace-weft", rev = "<commit-sha>", default-features = false }
 ```
 
-Requires Rust 1.94.1+ (edition 2024). Install the CLI from a checkout:
+Requires Rust 1.96+ (edition 2024). Install the CLI from a checkout:
 
 ```bash
 cargo install --path crates/trace-weft-cli
