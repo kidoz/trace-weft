@@ -155,6 +155,11 @@ async fn recorded_trace_is_served_by_query_endpoints() {
     assert_eq!(traces.len(), 1);
     assert_eq!(traces[0]["trace_id"], serde_json::json!(trace_id));
     assert_eq!(traces[0]["span_count"], serde_json::json!(3));
+    assert_eq!(traces[0]["root_name"], serde_json::json!("e2e-root"));
+    assert_eq!(traces[0]["root_span_kind"], serde_json::json!("agent"));
+    assert_eq!(traces[0]["model_provider"], serde_json::json!("openai"));
+    assert_eq!(traces[0]["model_name"], serde_json::json!("gpt-4.1"));
+    assert_eq!(traces[0]["error_summary"], serde_json::Value::Null);
 
     // Trace detail returns all spans ordered by start time.
     let (status, detail) = get_json(&app, &format!("/api/traces/{trace_id}")).await;

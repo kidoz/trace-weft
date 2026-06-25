@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Database, GitCompareArrows, Workflow } from 'lucide-react';
+import { Database, GitCompareArrows, Search, Workflow } from 'lucide-react';
 import { apiUrl } from './api';
-import { MetricPill, StatusBadge } from './IconSystem';
+import { MetricPill, SpanKindBadge, StatusBadge } from './IconSystem';
 
 export interface TraceSummary {
   trace_id: string;
@@ -10,6 +10,11 @@ export interface TraceSummary {
   end_time: number | null;
   span_count: number;
   status: string;
+  root_name?: string | null;
+  root_span_kind?: string | null;
+  model_provider?: string | null;
+  model_name?: string | null;
+  error_summary?: string | null;
 }
 
 export function TraceList({
@@ -21,17 +26,25 @@ export function TraceList({
 }) {
   const [traces, setTraces] = useState<TraceSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedForDiff, setSelectedForDiff] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'error' | 'running'>('all');
 
   useEffect(() => {
     fetch(apiUrl('/api/traces'))
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`trace list request failed: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
-        setTraces(data);
+        setTraces(Array.isArray(data) ? data : []);
+        setError(null);
         setLoading(false);
       })
       .catch((err) => {
         console.error('Failed to fetch traces', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch traces');
         setLoading(false);
       });
   }, []);
@@ -45,11 +58,30 @@ export function TraceList({
   };
 
   if (loading) return <div className="p-8 text-ink-dim">Loading traces...</div>;
+  if (error) return <div className="p-8 text-error">{error}</div>;
   if (traces.length === 0)
     return <div className="p-8 text-ink-dim">No traces found. Run a local agent first.</div>;
 
-  const GRID_COLS = '40px 1fr 120px 70px 110px 150px';
+  const GRID_COLS = '40px minmax(240px,1.4fr) minmax(180px,1fr) 120px 70px 110px 150px';
   const totalSpans = traces.reduce((total, trace) => total + trace.span_count, 0);
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredTraces = traces.filter((trace) => {
+    const statusBucket = trace.end_time ? trace.status.toLowerCase() : 'running';
+    if (statusFilter !== 'all' && statusBucket !== statusFilter) return false;
+    if (!normalizedQuery) return true;
+    return [
+      trace.trace_id,
+      trace.run_id,
+      trace.root_name,
+      trace.root_span_kind,
+      trace.model_provider,
+      trace.model_name,
+      trace.error_summary,
+      trace.status,
+    ]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+  });
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -61,29 +93,60 @@ export function TraceList({
             <MetricPill icon={Workflow} label={`${totalSpans} spans`} />
           </div>
         </div>
-        {selectedForDiff.length === 2 && (
-          <button
-            onClick={() => onDiffTraces(selectedForDiff[0], selectedForDiff[1])}
-            className="inline-flex items-center gap-2 rounded-pill bg-iris px-4 py-2 text-sm font-semibold text-window shadow-iris transition-colors"
-          >
-            <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
-            Compare selected · 2
-          </button>
-        )}
+        <div className="flex flex-col items-stretch gap-3 md:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-dim" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search traces"
+                className="h-9 w-[260px] rounded-pill border border-line-input bg-panel pl-9 pr-3 font-mono text-xs text-ink-hi outline-none transition-colors placeholder:text-ink-faint focus:border-iris"
+              />
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(event) =>
+                setStatusFilter(event.target.value as 'all' | 'ok' | 'error' | 'running')
+              }
+              className="h-9 rounded-pill border border-line-input bg-panel px-3 text-xs font-semibold text-ink-mid outline-none focus:border-iris"
+            >
+              <option value="all">All status</option>
+              <option value="ok">OK</option>
+              <option value="error">Error</option>
+              <option value="running">Running</option>
+            </select>
+          </div>
+          {selectedForDiff.length === 2 && (
+            <button
+              onClick={() => onDiffTraces(selectedForDiff[0], selectedForDiff[1])}
+              className="inline-flex items-center justify-center gap-2 rounded-pill bg-iris px-4 py-2 text-sm font-semibold text-window shadow-iris transition-colors"
+            >
+              <GitCompareArrows className="h-4 w-4" aria-hidden="true" />
+              Compare selected · 2
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-panel border border-line-inner bg-surface">
         <div className="grid bg-panel" style={{ gridTemplateColumns: GRID_COLS }}>
           <div className="label-th px-4 py-3" />
-          <div className="label-th px-4 py-3">Trace ID</div>
+          <div className="label-th px-4 py-3">Run</div>
+          <div className="label-th px-4 py-3">Model</div>
           <div className="label-th px-4 py-3">Status</div>
           <div className="label-th px-4 py-3">Spans</div>
           <div className="label-th px-4 py-3">Duration</div>
           <div className="label-th px-4 py-3">Time</div>
         </div>
 
-        {traces.map((trace) => {
+        {filteredTraces.map((trace) => {
           const selected = selectedForDiff.includes(trace.trace_id);
+          const displayStatus = trace.end_time ? trace.status : 'running';
+          const model =
+            trace.model_provider || trace.model_name
+              ? [trace.model_provider, trace.model_name].filter(Boolean).join(' / ')
+              : '—';
           return (
             <div
               key={trace.trace_id}
@@ -101,16 +164,33 @@ export function TraceList({
                 />
               </div>
               <div
-                className="cursor-pointer truncate px-4 py-4 font-mono text-sm text-iris-text"
+                className="min-w-0 cursor-pointer px-4 py-4"
                 onClick={() => onSelectTrace(trace.trace_id)}
               >
-                {trace.trace_id}
+                <div className="mb-1 flex min-w-0 items-center gap-2">
+                  {trace.root_span_kind && <SpanKindBadge kind={trace.root_span_kind} />}
+                  <span className="truncate text-sm font-semibold text-ink-hi">
+                    {trace.root_name ?? 'Unnamed run'}
+                  </span>
+                </div>
+                <div className="truncate font-mono text-[11px] text-iris-text">
+                  {trace.trace_id}
+                </div>
+                {trace.error_summary && (
+                  <div className="mt-1 truncate text-xs text-error">{trace.error_summary}</div>
+                )}
+              </div>
+              <div
+                className="cursor-pointer truncate px-4 py-4 font-mono text-xs text-ink-mid"
+                onClick={() => onSelectTrace(trace.trace_id)}
+              >
+                {model}
               </div>
               <div
                 className="cursor-pointer px-4 py-4"
                 onClick={() => onSelectTrace(trace.trace_id)}
               >
-                <StatusBadge status={trace.status} />
+                <StatusBadge status={displayStatus} />
               </div>
               <div
                 className="cursor-pointer px-4 py-4 text-sm text-ink-mid"
@@ -133,6 +213,9 @@ export function TraceList({
             </div>
           );
         })}
+        {filteredTraces.length === 0 && (
+          <div className="p-8 text-center text-ink-dim">No traces match the current filter.</div>
+        )}
       </div>
     </div>
   );

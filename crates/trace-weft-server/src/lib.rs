@@ -258,12 +258,22 @@ macro_rules! trace_summary_json {
         let end_time: Option<i64> = row.get("end_time");
         let span_count: i64 = row.get("span_count");
         let has_error: i64 = row.get("has_error");
+        let root_name: Option<String> = row.get("root_name");
+        let root_span_kind: Option<String> = row.get("root_span_kind");
+        let model_provider: Option<String> = row.get("model_provider");
+        let model_name: Option<String> = row.get("model_name");
+        let error_summary: Option<String> = row.get("error_summary");
         serde_json::json!({
             "trace_id": trace_id,
             "run_id": run_id,
             "start_time": start_time,
             "end_time": end_time,
             "span_count": span_count,
+            "root_name": root_name,
+            "root_span_kind": root_span_kind,
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "error_summary": error_summary,
             // A trace is errored if any of its spans errored, otherwise ok.
             "status": if has_error != 0 { "error" } else { "ok" },
         })
@@ -414,7 +424,18 @@ macro_rules! event_detail_json {
 const LIST_TRACES_SQL_SQLITE: &str = r#"
     SELECT trace_id, MIN(run_id) AS run_id, MIN(start_time) AS start_time,
            MAX(end_time) AS end_time, COUNT(span_id) AS span_count,
-           CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error
+           CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error,
+           COALESCE(
+             MIN(CASE WHEN parent_span_id IS NULL THEN name END),
+             MIN(name)
+           ) AS root_name,
+           COALESCE(
+             MIN(CASE WHEN parent_span_id IS NULL THEN span_kind END),
+             MIN(span_kind)
+           ) AS root_span_kind,
+           MAX(model_provider) AS model_provider,
+           MAX(model_name) AS model_name,
+           MIN(CASE WHEN status = 'error' THEN error_message_redacted END) AS error_summary
     FROM spans
     WHERE (project_id = ? OR ? IS NULL)
     GROUP BY trace_id
@@ -425,7 +446,18 @@ const LIST_TRACES_SQL_SQLITE: &str = r#"
 const LIST_TRACES_SQL_PG: &str = r#"
     SELECT trace_id, MIN(run_id) AS run_id, MIN(start_time) AS start_time,
            MAX(end_time) AS end_time, COUNT(span_id) AS span_count,
-           CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error
+           CAST(MAX(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS BIGINT) AS has_error,
+           COALESCE(
+             MIN(CASE WHEN parent_span_id IS NULL THEN name END),
+             MIN(name)
+           ) AS root_name,
+           COALESCE(
+             MIN(CASE WHEN parent_span_id IS NULL THEN span_kind END),
+             MIN(span_kind)
+           ) AS root_span_kind,
+           MAX(model_provider) AS model_provider,
+           MAX(model_name) AS model_name,
+           MIN(CASE WHEN status = 'error' THEN error_message_redacted END) AS error_summary
     FROM spans
     WHERE (project_id = $1 OR $1 IS NULL)
     GROUP BY trace_id
