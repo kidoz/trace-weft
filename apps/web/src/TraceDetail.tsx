@@ -26,16 +26,32 @@ export interface Span {
   trace_id: string;
   span_id: string;
   parent_span_id: string | null;
+  run_id: string;
+  session_id?: string | null;
+  user_id_hash?: string | null;
+  project_id?: string | null;
   span_kind: string;
   name: string;
   start_time: number;
   end_time: number | null;
   status: string;
+  status_message?: string | null;
+  error_type?: string | null;
+  error_message_redacted?: string | null;
   attributes: Record<string, unknown>;
+  otel_attributes?: Record<string, unknown>;
+  openinference_attributes?: Record<string, unknown>;
   latency_ms: number | null;
   input_ref: BlobRef | null;
   output_ref: BlobRef | null;
   retrieved_document_refs?: BlobRef[];
+  prompt_template_id?: string | null;
+  prompt_version?: string | null;
+  model_provider?: string | null;
+  model_name?: string | null;
+  tool_name?: string | null;
+  tool_schema_hash?: string | null;
+  retrieval_query_hash?: string | null;
   cost_estimate?: { amount: number; currency: string } | null;
   token_usage?: {
     input: number;
@@ -44,6 +60,10 @@ export interface Span {
     breakdown: Record<string, number>;
   } | null;
   memory_state?: Record<string, unknown> | null;
+  retry_count?: number | null;
+  cache_hit?: boolean | null;
+  redaction_policy?: string | null;
+  schema_version?: string | null;
 }
 
 interface TraceEvent {
@@ -178,6 +198,8 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
   const cost = selectedSpan?.cost_estimate?.amount;
   const tokens = selectedSpan?.token_usage;
   const selectedBlobRefs = spanBlobRefs(selectedSpan);
+  const traceStart = Number.isFinite(window.min) ? window.min : 0;
+  const traceEnd = traceStart + window.total;
 
   return (
     <div className="mx-auto flex h-full max-w-7xl flex-col p-6">
@@ -215,7 +237,28 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
         <div className="relative flex min-w-0 flex-1 flex-col border-r border-line-inner">
           {viewMode === 'waterfall' ? (
             <div className="flex-1 overflow-y-auto bg-surface p-4">
-              <div className="label-section mb-3">Waterfall</div>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="label-section">Waterfall</div>
+                <div className="font-mono text-[11px] text-ink-dim">
+                  {new Date(traceStart).toLocaleTimeString()} -{' '}
+                  {new Date(traceEnd).toLocaleTimeString()}
+                </div>
+              </div>
+              <div className="mb-3 grid grid-cols-[210px_1fr_80px] gap-3 px-3">
+                <div />
+                <div className="relative h-5 border-t border-line-inner">
+                  <span className="absolute -top-2 left-0 bg-surface pr-1 font-mono text-[10px] text-ink-dim">
+                    0ms
+                  </span>
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-surface px-1 font-mono text-[10px] text-ink-dim">
+                    {Math.round(window.total / 2)}ms
+                  </span>
+                  <span className="absolute -top-2 right-0 bg-surface pl-1 font-mono text-[10px] text-ink-dim">
+                    {Math.round(window.total)}ms
+                  </span>
+                </div>
+                <div />
+              </div>
               <div className="flex flex-col gap-2">
                 {spans.map((span) => {
                   const selected = selectedSpan?.span_id === span.span_id;
@@ -321,6 +364,7 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
                 />
               </div>
 
+              <InspectorSections span={selectedSpan} />
               <TokenHeatmap tokenUsage={selectedSpan.token_usage} />
               <MemoryDiff span={selectedSpan} spans={spans} />
 
@@ -352,6 +396,116 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function InspectorSections({ span }: { span: Span }) {
+  const modelLabel =
+    span.model_provider || span.model_name
+      ? [span.model_provider, span.model_name].filter(Boolean).join(' / ')
+      : '—';
+  const hasError = Boolean(span.error_type || span.error_message_redacted || span.status_message);
+  const hasModel = Boolean(
+    span.model_provider || span.model_name || span.prompt_template_id || span.prompt_version,
+  );
+  const hasTool = Boolean(span.tool_name || span.tool_schema_hash);
+  const hasRetrieval = Boolean(span.retrieval_query_hash || span.retrieved_document_refs?.length);
+  const hasTelemetry =
+    Object.keys(span.otel_attributes ?? {}).length > 0 ||
+    Object.keys(span.openinference_attributes ?? {}).length > 0;
+
+  return (
+    <div className="mb-5 space-y-3">
+      <InspectorGroup title="Span metadata">
+        <KeyValue label="Status" value={<StatusBadge status={span.status} />} />
+        <KeyValue label="Span ID" value={span.span_id} mono />
+        <KeyValue label="Run ID" value={span.run_id} mono />
+        {span.parent_span_id && <KeyValue label="Parent" value={span.parent_span_id} mono />}
+        {span.session_id && <KeyValue label="Session" value={span.session_id} mono />}
+        {span.redaction_policy && <KeyValue label="Capture" value={span.redaction_policy} mono />}
+        {span.retry_count != null && <KeyValue label="Retries" value={span.retry_count} mono />}
+        {span.cache_hit != null && (
+          <KeyValue label="Cache hit" value={String(span.cache_hit)} mono />
+        )}
+      </InspectorGroup>
+
+      {hasError && (
+        <InspectorGroup title="Status and error">
+          {span.status_message && <KeyValue label="Message" value={span.status_message} />}
+          {span.error_type && <KeyValue label="Type" value={span.error_type} mono />}
+          {span.error_message_redacted && (
+            <KeyValue label="Redacted error" value={span.error_message_redacted} />
+          )}
+        </InspectorGroup>
+      )}
+
+      {hasModel && (
+        <InspectorGroup title="Model and prompt">
+          <KeyValue label="Model" value={modelLabel} mono />
+          {span.prompt_template_id && (
+            <KeyValue label="Template" value={span.prompt_template_id} mono />
+          )}
+          {span.prompt_version && <KeyValue label="Version" value={span.prompt_version} mono />}
+        </InspectorGroup>
+      )}
+
+      {hasTool && (
+        <InspectorGroup title="Tool">
+          {span.tool_name && <KeyValue label="Name" value={span.tool_name} mono />}
+          {span.tool_schema_hash && <KeyValue label="Schema" value={span.tool_schema_hash} mono />}
+        </InspectorGroup>
+      )}
+
+      {hasRetrieval && (
+        <InspectorGroup title="Retrieval">
+          {span.retrieval_query_hash && (
+            <KeyValue label="Query hash" value={span.retrieval_query_hash} mono />
+          )}
+          <KeyValue label="Documents" value={span.retrieved_document_refs?.length ?? 0} mono />
+        </InspectorGroup>
+      )}
+
+      {hasTelemetry && (
+        <InspectorGroup title="Telemetry attrs">
+          <KeyValue
+            label="OTel"
+            value={`${Object.keys(span.otel_attributes ?? {}).length} keys`}
+            mono
+          />
+          <KeyValue
+            label="OpenInf"
+            value={`${Object.keys(span.openinference_attributes ?? {}).length} keys`}
+            mono
+          />
+        </InspectorGroup>
+      )}
+    </div>
+  );
+}
+
+function InspectorGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-panel border border-line-inner bg-panel p-3">
+      <div className="label-section mb-2">{title}</div>
+      <div className="space-y-1.5">{children}</div>
+    </div>
+  );
+}
+
+function KeyValue({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-[96px_1fr] gap-2 text-xs">
+      <div className="text-ink-dim">{label}</div>
+      <div className={`min-w-0 truncate text-ink-hi ${mono ? 'font-mono' : ''}`}>{value}</div>
     </div>
   );
 }
