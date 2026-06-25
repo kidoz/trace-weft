@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle2, ShieldAlert, XCircle } from 'lucide-react';
+import { Check, Pause, X } from 'lucide-react';
 import { apiUrl } from './api';
 
 export function HitlDashboard() {
@@ -69,72 +69,101 @@ export function HitlDashboard() {
   if (pendingIds.length === 0) return null;
 
   return (
-    <div className="mx-6 mt-4 rounded border border-amber-200 bg-amber-50 p-4 shadow-sm">
-      <div className="flex items-start">
-        <div className="mr-3 rounded border border-amber-200 bg-white p-2 text-amber-700">
-          <ShieldAlert className="h-5 w-5" aria-hidden="true" />
+    <div className="mx-6 mt-4">
+      <div className="overflow-hidden rounded-window border border-[rgba(251,191,36,0.3)] bg-nav">
+        {/* Header bar */}
+        <div className="flex items-center gap-3 bg-[linear-gradient(90deg,rgba(251,191,36,0.12),rgba(251,191,36,0.02))] p-4">
+          <div className="rounded-panel bg-[rgba(251,191,36,0.15)] p-2 text-warn">
+            <Pause className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div className="flex-1">
+            <div className="font-semibold text-warn-text">Breakpoint · Human-in-the-Loop</div>
+            <div className="text-xs text-ink-mid">
+              Execution paused — {pendingIds.length} span(s) awaiting approval
+            </div>
+          </div>
+          <span className="rounded-pill border border-[rgba(251,191,36,0.3)] bg-[rgba(251,191,36,0.12)] px-2.5 py-1 font-mono text-xs text-warn">
+            {pendingIds.length} PENDING
+          </span>
         </div>
-        <div className="flex-1">
-          <h3 className="mb-2 font-bold text-amber-900">
-            Human-in-the-Loop: Pending Approvals ({pendingIds.length})
-          </h3>
-          <div className="flex gap-4">
-            <div className="w-1/3 border-r border-yellow-200 pr-4">
-              <ul className="space-y-1">
-                {pendingIds.map((id) => (
-                  <li
+
+        {/* Body */}
+        <div className="grid grid-cols-[300px_1fr] border-t border-line-inner">
+          {/* Queue */}
+          <div className="border-r border-line-inner p-4">
+            <div className="label-section">QUEUE</div>
+            <div className="mt-2 space-y-2">
+              {pendingIds.map((id) => {
+                const active = selectedSpan === id;
+                return (
+                  <div
                     key={id}
                     onClick={() => setSelectedSpan(id)}
-                    className={`cursor-pointer px-2 py-1 rounded text-sm font-mono ${
-                      selectedSpan === id
-                        ? 'bg-yellow-200 text-yellow-900 font-bold'
-                        : 'text-yellow-700 hover:bg-yellow-100'
+                    className={`cursor-pointer rounded-panel p-2.5 transition-colors ${
+                      active
+                        ? 'border border-[rgba(251,191,36,0.3)] bg-[rgba(251,191,36,0.10)]'
+                        : 'border border-line-inner bg-panel'
                     }`}
                   >
-                    {id.substring(0, 13)}...
-                  </li>
-                ))}
-              </ul>
-            </div>
-            {selectedSpan && (
-              <div className="w-2/3 flex flex-col gap-3">
-                <div>
-                  <label className="block text-xs font-semibold uppercase text-yellow-800 mb-1">
-                    Override Payload (JSON)
-                  </label>
-                  <textarea
-                    className="w-full h-24 font-mono text-xs p-2 bg-yellow-100/50 text-slate-800 rounded border border-yellow-300 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-                    value={mockValue}
-                    onChange={(e) => setMockValue(e.target.value)}
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => void handleResolve('approve')}
-                    className="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-emerald-700"
-                  >
-                    <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-                    Approve
-                  </button>
-                  <div className="flex-1 flex gap-2">
-                    <input
-                      type="text"
-                      className="flex-1 text-xs p-1.5 rounded border border-yellow-300 bg-white"
-                      value={rejectReason}
-                      onChange={(e) => setRejectReason(e.target.value)}
-                    />
-                    <button
-                      onClick={() => void handleResolve('reject')}
-                      className="inline-flex items-center gap-1.5 rounded bg-rose-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-rose-700"
+                    <div
+                      className={`truncate font-mono text-xs ${
+                        active ? 'text-ink-hi' : 'text-ink-mid'
+                      }`}
                     >
-                      <XCircle className="h-4 w-4" aria-hidden="true" />
-                      Reject
-                    </button>
+                      {id}
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                );
+              })}
+            </div>
           </div>
+
+          {/* Detail */}
+          {selectedSpan && (
+            <div className="p-5">
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <div className="font-mono text-ink-hi">{selectedSpan}</div>
+                  <div className="text-xs text-ink-dim">tool · awaiting approval</div>
+                </div>
+                <span className="rounded-chip border border-[rgba(251,191,36,0.25)] bg-[rgba(251,191,36,0.10)] px-2 py-1 text-xs text-warn">
+                  PENDING APPROVAL
+                </span>
+              </div>
+
+              <div className="mt-4">
+                <div className="label-section">Override payload (JSON)</div>
+                <textarea
+                  className="mt-2 h-24 w-full rounded-panel border border-line-input bg-surface p-3 font-mono text-xs text-ink-hi caret-[#7c83ff] focus:border-iris focus:outline-none"
+                  value={mockValue}
+                  onChange={(e) => setMockValue(e.target.value)}
+                />
+              </div>
+
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  onClick={() => void handleResolve('approve')}
+                  className="inline-flex items-center gap-1.5 rounded-pill bg-[#22c55e] px-4 py-1.5 font-semibold text-window shadow-[0_4px_14px_rgba(34,197,94,0.30)] transition-colors"
+                >
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                  Approve &amp; resume
+                </button>
+                <input
+                  type="text"
+                  className="flex-1 rounded-pill border border-line-inner bg-surface px-3 py-1.5 font-mono text-xs text-ink-hi focus:outline-none"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                />
+                <button
+                  onClick={() => void handleResolve('reject')}
+                  className="inline-flex items-center gap-1.5 rounded-pill border border-[rgba(251,113,133,0.4)] bg-nav px-4 py-1.5 font-semibold text-error transition-colors"
+                >
+                  <X className="h-4 w-4" aria-hidden="true" />
+                  Reject
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

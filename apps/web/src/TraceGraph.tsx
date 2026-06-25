@@ -4,6 +4,7 @@ import {
   MiniMap,
   Controls,
   Background,
+  BackgroundVariant,
   MarkerType,
   type Node,
   type Edge,
@@ -11,20 +12,21 @@ import {
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
 import type { Span } from './TraceDetail';
+import { SpanKindBadge } from './IconSystem';
+import { spanKindColor } from './spanColors';
 
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-const nodeWidth = 250;
-const nodeHeight = 80;
+const nodeWidth = 210;
+const nodeHeight = 84;
 
 const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => {
-  dagreGraph.setGraph({ rankdir: direction });
+  dagreGraph.setGraph({ rankdir: direction, ranksep: 70, nodesep: 36 });
 
   nodes.forEach((node) => {
     dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
   });
-
   edges.forEach((edge) => {
     dagreGraph.setEdge(edge.source, edge.target);
   });
@@ -47,6 +49,11 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
   return { nodes: newNodes, edges };
 };
 
+function isPending(status: string): boolean {
+  const s = status.toLowerCase();
+  return s === 'pending' || s === 'waiting' || s === 'pending_approval';
+}
+
 export function TraceGraph({
   spans,
   onSpanClick,
@@ -56,11 +63,10 @@ export function TraceGraph({
 }) {
   const { nodes, edges } = useMemo(() => {
     const initialNodes: Node[] = spans.map((span) => {
-      const isError = span.status !== 'ok';
-      let bgColor = 'bg-white';
-      if (span.span_kind === 'agent') bgColor = 'bg-purple-50';
-      else if (span.span_kind === 'llm_call') bgColor = 'bg-blue-50';
-      else if (span.span_kind === 'tool') bgColor = 'bg-orange-50';
+      const error = span.status.toLowerCase() !== 'ok' && !isPending(span.status);
+      const pending = isPending(span.status);
+      const dur = span.latency_ms ?? (span.end_time ? span.end_time - span.start_time : 0);
+      const dotColor = error ? '#fb7185' : pending ? '#fbbf24' : '#4ade80';
 
       return {
         id: span.span_id,
@@ -68,13 +74,20 @@ export function TraceGraph({
         data: {
           label: (
             <div
-              className={`p-2 rounded border shadow-sm ${bgColor} ${isError ? 'border-red-400' : 'border-slate-200'} text-left`}
               onClick={() => onSpanClick(span)}
+              className="w-[190px] rounded-[11px] border bg-panel p-2.5 text-left transition-colors hover:border-[rgba(124,131,255,0.5)]"
+              style={{ borderColor: error ? 'rgba(251,113,133,0.5)' : '#262b34' }}
             >
-              <div className="font-semibold text-slate-800 text-xs mb-1 truncate">{span.name}</div>
-              <div className="flex justify-between text-[10px] text-slate-500">
-                <span className="uppercase font-bold">{span.span_kind}</span>
-                <span className={isError ? 'text-red-600' : ''}>{span.latency_ms}ms</span>
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="truncate text-[12px] font-semibold text-ink-hi">{span.name}</span>
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${pending ? 'tw-pulse' : ''}`}
+                  style={{ backgroundColor: dotColor }}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <SpanKindBadge kind={span.span_kind} />
+                <span className="font-mono text-[11px] text-ink-mid">{dur ? `${dur}ms` : '—'}</span>
               </div>
             </div>
           ),
@@ -92,31 +105,47 @@ export function TraceGraph({
         type: 'smoothstep',
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          width: 20,
-          height: 20,
-          color: '#cbd5e1',
+          width: 18,
+          height: 18,
+          color: '#2a3040',
         },
-        style: {
-          strokeWidth: 2,
-          stroke: '#cbd5e1',
-        },
+        style: { strokeWidth: 1.6, stroke: '#2a3040' },
       }));
 
     return getLayoutedElements(initialNodes, initialEdges);
   }, [spans, onSpanClick]);
 
+  const kindColorById = useMemo(() => {
+    const m = new Map<string, string>();
+    spans.forEach((s) => m.set(s.span_id, spanKindColor(s.span_kind)));
+    return m;
+  }, [spans]);
+
   return (
-    <div className="w-full h-full bg-slate-50/50">
+    <div className="h-full w-full bg-surface">
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        colorMode="dark"
         fitView
         minZoom={0.1}
-        attributionPosition="bottom-right"
+        proOptions={{ hideAttribution: true }}
       >
-        <Controls />
-        <MiniMap />
-        <Background gap={12} size={1} />
+        <Controls className="!border-line-node !bg-panel" showInteractive={false} />
+        <MiniMap
+          pannable
+          zoomable
+          maskColor="rgba(8,10,14,0.7)"
+          style={{ background: '#0a0c10', border: '1px solid #262b34', borderRadius: 8 }}
+          nodeColor={(n) => kindColorById.get(n.id) ?? '#5d6677'}
+          nodeStrokeWidth={0}
+        />
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={24}
+          size={1.5}
+          color="rgba(124,131,255,0.14)"
+        />
       </ReactFlow>
     </div>
   );

@@ -43,55 +43,51 @@ export function ReplayLab({ span, onBack }: { span: Span; onBack: () => void }) 
   };
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="flex items-center mb-6">
+    <div className="mx-auto max-w-4xl p-8">
+      <div className="mb-6 flex items-center">
         <button
           onClick={onBack}
-          className="mr-4 inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:text-slate-950"
+          className="mr-4 inline-flex items-center gap-2 rounded-pill border border-line bg-panel px-3 py-2 text-sm font-medium text-ink-mid transition-colors hover:text-ink-hi"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />
           Back
         </button>
-        <h1 className="inline-flex items-center gap-2 text-xl font-bold text-slate-900">
-          <Play className="h-5 w-5 text-lime-700" aria-hidden="true" />
+        <h1 className="inline-flex items-center gap-2 text-xl font-bold text-ink-hi">
+          <Play className="h-5 w-5 text-iris" aria-hidden="true" />
           Replay Lab
         </h1>
       </div>
 
-      <div className="rounded border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-window border border-line bg-surface p-6 shadow-window">
         <div className="mb-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-1">
-            Target Span
-          </h2>
-          <div className="flex flex-wrap items-center gap-2 font-mono text-lg text-sky-700">
+          <h2 className="label-section mb-1">Target Span</h2>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-lg text-flow">
             <span>{span.name}</span>
             <SpanKindBadge kind={span.span_kind} />
           </div>
         </div>
 
         <div className="mb-6">
-          <label className="block text-sm font-semibold uppercase tracking-wider text-slate-500 mb-2">
-            Mocked Output (JSON)
-          </label>
+          <label className="label-section mb-2 block">Mocked Output (JSON)</label>
           <textarea
-            className="w-full h-48 font-mono text-sm p-4 bg-slate-900 text-green-400 rounded-md shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="h-48 w-full rounded-panel border border-line-inner bg-code p-4 font-mono text-sm text-jsonstr shadow-inner focus:outline-none focus:ring-2 focus:ring-iris"
             value={mockContent}
             onChange={(e) => setMockContent(e.target.value)}
           />
-          {error && <div className="text-red-500 text-sm mt-2">{error}</div>}
+          {error && <div className="mt-2 text-sm text-error">{error}</div>}
         </div>
 
-        <div className="flex items-center justify-between bg-slate-50 p-4 rounded border border-slate-200">
-          <div className="text-sm text-slate-600">
+        <div className="flex items-center justify-between rounded-panel border border-line bg-panel p-4">
+          <div className="text-sm text-ink-mid">
             <p>
-              <strong>Instructions:</strong>
+              <strong className="text-ink-hi">Instructions:</strong>
             </p>
-            <ol className="list-decimal ml-4 mt-1">
+            <ol className="ml-4 mt-1 list-decimal">
               <li>Edit the JSON mock output above.</li>
               <li>Download the Replay Configuration file.</li>
               <li>
                 Run your agent with: <br />
-                <code className="bg-slate-200 px-1 py-0.5 rounded text-xs text-slate-800">
+                <code className="rounded-chip bg-code px-1 py-0.5 font-mono text-xs text-flow">
                   TRACE_WEFT_REPLAY_FILE=replay_config_{span.name}.json cargo run
                 </code>
               </li>
@@ -99,7 +95,7 @@ export function ReplayLab({ span, onBack }: { span: Span; onBack: () => void }) 
           </div>
           <button
             onClick={handleDownload}
-            className="inline-flex items-center gap-2 rounded bg-slate-950 px-6 py-3 font-medium text-white shadow-sm transition-colors hover:bg-slate-800"
+            className="inline-flex items-center gap-2 rounded-pill bg-iris px-6 py-3 font-semibold text-window shadow-iris transition-[filter] hover:brightness-110"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
             Download Config

@@ -14,41 +14,43 @@ export function TokenHeatmap({ tokenUsage }: { tokenUsage: Span['token_usage'] }
 
   return (
     <div className="mb-6">
-      <h3 className="text-sm font-semibold uppercase tracking-wider text-slate-500 mb-2">
-        Token Heatmap
-      </h3>
-      <div className="bg-slate-50 border border-slate-200 rounded p-4">
-        <div className="flex justify-between text-xs text-slate-600 mb-2">
-          <span>Input: {tokenUsage.input}</span>
-          <span>Output: {tokenUsage.output}</span>
-          <span className="font-bold">Total: {total}</span>
+      <h3 className="label-section mb-2">Token Heatmap</h3>
+      <div className="rounded-panel border border-line bg-panel p-4">
+        <div className="mb-2 flex justify-between font-mono text-xs text-ink-mid">
+          <span>
+            Input: <span className="text-flow">{tokenUsage.input}</span>
+          </span>
+          <span>
+            Output: <span className="text-ok">{tokenUsage.output}</span>
+          </span>
+          <span className="font-bold text-ink-hi">Total: {total}</span>
         </div>
 
         {/* Simple Progress Bar */}
-        <div className="w-full h-4 bg-slate-200 rounded overflow-hidden flex">
+        <div className="flex h-4 w-full overflow-hidden rounded-chip bg-panel-2 ring-1 ring-inset ring-line-inner">
           <div
-            style={{ width: `${inputPct}%` }}
-            className="bg-blue-500 h-full"
+            style={{ width: `${inputPct}%`, backgroundColor: 'rgba(86, 207, 225, 0.65)' }}
+            className="h-full"
             title="Input Tokens"
           ></div>
           <div
-            style={{ width: `${outputPct}%` }}
-            className="bg-green-500 h-full"
+            style={{ width: `${outputPct}%`, backgroundColor: 'rgba(74, 222, 128, 0.65)' }}
+            className="h-full"
             title="Output Tokens"
           ></div>
         </div>
 
         {hasBreakdown && (
-          <div className="mt-4 border-t border-slate-200 pt-3">
-            <h4 className="text-xs font-bold text-slate-500 mb-2">Breakdown</h4>
+          <div className="mt-4 border-t border-line-inner pt-3">
+            <h4 className="label-section mb-2">Breakdown</h4>
             <div className="grid grid-cols-2 gap-2 text-xs">
               {Object.entries(tokenUsage.breakdown).map(([key, val]) => (
                 <div
                   key={key}
-                  className="flex justify-between bg-white p-1.5 rounded border border-slate-100"
+                  className="flex justify-between rounded-chip border border-line-inner bg-panel-2 p-1.5"
                 >
-                  <span className="text-slate-600">{key}</span>
-                  <span className="font-mono text-slate-800">{val}</span>
+                  <span className="text-ink-mid">{key}</span>
+                  <span className="font-mono text-ink-hi">{val}</span>
                 </div>
               ))}
             </div>
