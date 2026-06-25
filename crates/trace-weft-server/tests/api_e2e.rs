@@ -12,7 +12,9 @@ use sqlx::sqlite::SqlitePoolOptions;
 use tempfile::TempDir;
 use tower::ServiceExt;
 use trace_weft_core::test_util::{sample_span_full, sample_span_minimal};
-use trace_weft_core::{SpanId, SpanRecord, SpanStatus, TraceId, TraceWeftSpanKind};
+use trace_weft_core::{
+    EventId, EventKind, EventRecord, SpanId, SpanRecord, SpanStatus, TraceId, TraceWeftSpanKind,
+};
 use trace_weft_recorder::TraceStore;
 use trace_weft_recorder::sqlite::SqliteRecorder;
 use trace_weft_server::{AppState, DbPool, build_router};
@@ -68,6 +70,19 @@ async fn get_json(app: &Router, uri: &str) -> (StatusCode, serde_json::Value) {
     (status, value)
 }
 
+async fn get_bytes(app: &Router, uri: &str) -> (StatusCode, Vec<u8>) {
+    let response = app
+        .clone()
+        .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, bytes.to_vec())
+}
+
 /// A root agent span with an LLM child and an evaluator child, all in one trace.
 fn sample_trace() -> Vec<SpanRecord> {
     let root = {
@@ -102,6 +117,24 @@ fn sample_trace() -> Vec<SpanRecord> {
     vec![root, llm, evaluator]
 }
 
+fn trace_event(trace_id: TraceId, run_id: trace_weft_core::RunId, parent: SpanId) -> EventRecord {
+    let mut attributes = std::collections::HashMap::new();
+    attributes.insert("attempt".to_string(), serde_json::json!(2));
+
+    EventRecord {
+        event_id: EventId(uuid::Uuid::from_u128(0x404)),
+        trace_id,
+        run_id,
+        parent_span_id: Some(parent),
+        seq: 7,
+        event_kind: EventKind::Retry,
+        name: "retry-after-rate-limit".into(),
+        timestamp: 1_715_000_000_055,
+        attributes,
+        schema_version: "1.0".into(),
+    }
+}
+
 #[tokio::test]
 async fn recorded_trace_is_served_by_query_endpoints() {
     let dir = TempDir::new().unwrap();
@@ -112,6 +145,8 @@ async fn recorded_trace_is_served_by_query_endpoints() {
     for span in &spans {
         recorder.record_span(span.clone()).await.unwrap();
     }
+    let event = trace_event(spans[0].trace_id, spans[0].run_id, spans[1].span_id);
+    recorder.record_event(event.clone()).await.unwrap();
 
     // Trace list groups the three spans into one trace.
     let (status, traces) = get_json(&app, "/api/traces").await;
@@ -142,6 +177,74 @@ async fn recorded_trace_is_served_by_query_endpoints() {
         detail[1]["input_ref"]["content_type"],
         serde_json::json!("text/plain")
     );
+    assert_eq!(
+        detail[1]["run_id"],
+        serde_json::json!(spans[0].run_id.0.to_string())
+    );
+    assert_eq!(
+        detail[1]["session_id"],
+        serde_json::json!(spans[1].session_id.unwrap().0.to_string())
+    );
+    assert_eq!(detail[1]["user_id_hash"], serde_json::json!("user-hash"));
+    assert_eq!(detail[1]["status_message"], serde_json::json!("completed"));
+    assert_eq!(
+        detail[1]["otel_attributes"]["gen_ai.operation.name"],
+        serde_json::json!("chat")
+    );
+    assert_eq!(
+        detail[1]["openinference_attributes"]["llm.system"],
+        serde_json::json!("openai")
+    );
+    assert_eq!(
+        detail[1]["memory_state"]["scratchpad"],
+        serde_json::json!("notes")
+    );
+    assert_eq!(
+        detail[1]["prompt_template_id"],
+        serde_json::json!("support-answer")
+    );
+    assert_eq!(detail[1]["prompt_version"], serde_json::json!("v7"));
+    assert_eq!(detail[1]["model_provider"], serde_json::json!("openai"));
+    assert_eq!(detail[1]["model_name"], serde_json::json!("gpt-4.1"));
+    assert_eq!(detail[1]["tool_name"], serde_json::json!("kb_search"));
+    assert_eq!(
+        detail[1]["retrieval_query_hash"],
+        serde_json::json!("query-hash")
+    );
+    assert_eq!(
+        detail[1]["retrieved_document_refs"][0]["content_type"],
+        "text/plain"
+    );
+    assert_eq!(detail[1]["token_usage"]["input"], serde_json::json!(100));
+    assert_eq!(
+        detail[1]["cost_estimate"]["amount"],
+        serde_json::json!(0.0123)
+    );
+    assert_eq!(detail[1]["retry_count"], serde_json::json!(1));
+    assert_eq!(detail[1]["cache_hit"], serde_json::json!(false));
+    assert_eq!(
+        detail[1]["redaction_policy"],
+        serde_json::json!("redacted_preview")
+    );
+    assert_eq!(detail[1]["schema_version"], serde_json::json!("1.0"));
+
+    // Events are available separately and ordered for timeline/transcript views.
+    let (status, events) = get_json(&app, &format!("/api/traces/{trace_id}/events")).await;
+    assert_eq!(status, StatusCode::OK);
+    let events = events.as_array().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0]["event_id"],
+        serde_json::json!(event.event_id.0.to_string())
+    );
+    assert_eq!(events[0]["trace_id"], serde_json::json!(trace_id));
+    assert_eq!(
+        events[0]["parent_span_id"],
+        serde_json::json!(spans[1].span_id.0.to_string())
+    );
+    assert_eq!(events[0]["seq"], serde_json::json!(7));
+    assert_eq!(events[0]["event_kind"], serde_json::json!("retry"));
+    assert_eq!(events[0]["attributes"]["attempt"], serde_json::json!(2));
 
     // Eval listing returns only evaluator spans, with parsed attributes.
     let (status, evals) = get_json(&app, "/api/evals").await;
@@ -168,9 +271,31 @@ async fn empty_database_returns_empty_lists() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail, serde_json::json!([]));
 
+    let (status, events) = get_json(&app, "/api/traces/no-such-trace/events").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(events, serde_json::json!([]));
+
     let (status, evals) = get_json(&app, "/api/evals").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(evals, serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn blob_endpoint_serves_local_blob_bytes() {
+    let dir = TempDir::new().unwrap();
+    let (app, _recorder) = test_app(dir.path()).await;
+    let blob_dir = dir.path().join("blobs");
+    tokio::fs::create_dir_all(&blob_dir).await.unwrap();
+    tokio::fs::write(blob_dir.join("sha256_local_blob"), b"redacted blob")
+        .await
+        .unwrap();
+
+    let (status, bytes) = get_bytes(&app, "/api/blobs/sha256:local_blob").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"redacted blob");
+
+    let (status, _) = get_bytes(&app, "/api/blobs/sha256:missing").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
@@ -364,7 +489,7 @@ async fn trace_queries_are_scoped_to_the_authenticated_project() {
         ],
         false,
     );
-    let (app, _recorder) = test_app_with_auth(dir.path(), auth).await;
+    let (app, recorder) = test_app_with_auth(dir.path(), auth).await;
 
     // Each tenant ingests its own trace; the server stamps project_id from the key.
     let alpha = trace_with_seed(0x0a00);
@@ -377,6 +502,17 @@ async fn trace_queries_are_scoped_to_the_authenticated_project() {
         post_batch(&app, &beta, Some("tw-beta")).await,
         StatusCode::ACCEPTED
     );
+    recorder
+        .record_event(trace_event(
+            alpha[0].trace_id,
+            alpha[0].run_id,
+            alpha[1].span_id,
+        ))
+        .await
+        .unwrap();
+    let mut beta_event = trace_event(beta[0].trace_id, beta[0].run_id, beta[1].span_id);
+    beta_event.event_id = EventId(uuid::Uuid::from_u128(0x405));
+    recorder.record_event(beta_event).await.unwrap();
 
     let alpha_trace = alpha[0].trace_id.0.to_string();
     let beta_trace = beta[0].trace_id.0.to_string();
@@ -394,12 +530,30 @@ async fn trace_queries_are_scoped_to_the_authenticated_project() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(detail.as_array().unwrap().len(), 0);
 
+    let (status, events) = get_json_auth(
+        &app,
+        &format!("/api/traces/{beta_trace}/events"),
+        Some("tw-alpha"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(events.as_array().unwrap().len(), 0);
+
     // Beta sees its own trace and not alpha's.
     let (status, traces) = get_json_auth(&app, "/api/traces", Some("tw-beta")).await;
     assert_eq!(status, StatusCode::OK);
     let traces = traces.as_array().unwrap();
     assert_eq!(traces.len(), 1);
     assert_eq!(traces[0]["trace_id"], serde_json::json!(beta_trace));
+
+    let (status, events) = get_json_auth(
+        &app,
+        &format!("/api/traces/{beta_trace}/events"),
+        Some("tw-beta"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(events.as_array().unwrap().len(), 1);
 }
 
 #[tokio::test]

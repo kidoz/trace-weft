@@ -16,7 +16,9 @@ use axum::Router;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use trace_weft_core::test_util::{sample_span_full, sample_span_minimal};
-use trace_weft_core::{SpanId, SpanRecord, SpanStatus, TraceWeftSpanKind};
+use trace_weft_core::{
+    EventId, EventKind, EventRecord, SpanId, SpanRecord, SpanStatus, TraceId, TraceWeftSpanKind,
+};
 use trace_weft_recorder::TraceStore;
 use trace_weft_server::storage::postgres::PostgresRecorder;
 use trace_weft_server::{AppState, DbPool, build_router};
@@ -56,6 +58,24 @@ fn sample_trace() -> Vec<SpanRecord> {
     vec![root, llm, evaluator]
 }
 
+fn trace_event(trace_id: TraceId, run_id: trace_weft_core::RunId, parent: SpanId) -> EventRecord {
+    let mut attributes = std::collections::HashMap::new();
+    attributes.insert("attempt".to_string(), serde_json::json!(2));
+
+    EventRecord {
+        event_id: EventId(uuid::Uuid::from_u128(0x504)),
+        trace_id,
+        run_id,
+        parent_span_id: Some(parent),
+        seq: 7,
+        event_kind: EventKind::Retry,
+        name: "pg-retry-after-rate-limit".into(),
+        timestamp: 1_715_000_000_055,
+        attributes,
+        schema_version: "1.0".into(),
+    }
+}
+
 async fn get_json(app: &Router, uri: &str) -> (StatusCode, serde_json::Value) {
     use tower::ServiceExt;
     let response = app
@@ -91,6 +111,10 @@ async fn postgres_query_endpoints_match_sqlite_shape() {
         .expect("connect to Postgres");
     let pool = recorder.pool.clone();
     // Start from a clean table so assertions are deterministic across runs.
+    sqlx::query("DELETE FROM events")
+        .execute(&pool)
+        .await
+        .expect("clear events");
     sqlx::query("DELETE FROM spans")
         .execute(&pool)
         .await
@@ -102,6 +126,8 @@ async fn postgres_query_endpoints_match_sqlite_shape() {
     for span in &spans {
         recorder.record_span(span.clone()).await.unwrap();
     }
+    let event = trace_event(spans[0].trace_id, spans[0].run_id, spans[1].span_id);
+    recorder.record_event(event.clone()).await.unwrap();
 
     let state = AppState {
         pool: DbPool::Postgres(pool),
@@ -140,6 +166,27 @@ async fn postgres_query_endpoints_match_sqlite_shape() {
         detail[1]["input_ref"]["content_type"],
         serde_json::json!("text/plain")
     );
+    assert_eq!(detail[1]["token_usage"]["input"], serde_json::json!(100));
+    assert_eq!(
+        detail[1]["cost_estimate"]["amount"],
+        serde_json::json!(0.0123)
+    );
+    assert_eq!(
+        detail[1]["memory_state"]["scratchpad"],
+        serde_json::json!("notes")
+    );
+
+    // get_trace_events returns trace events with decoded attributes.
+    let (status, events) = get_json(&app, &format!("/api/traces/{trace_id}/events")).await;
+    assert_eq!(status, StatusCode::OK);
+    let events = events.as_array().unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0]["event_id"],
+        serde_json::json!(event.event_id.0.to_string())
+    );
+    assert_eq!(events[0]["event_kind"], serde_json::json!("retry"));
+    assert_eq!(events[0]["attributes"]["attempt"], serde_json::json!(2));
 
     // list_evals returns only evaluator spans with parsed attributes.
     let (status, evals) = get_json(&app, "/api/evals").await;

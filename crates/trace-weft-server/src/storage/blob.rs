@@ -12,6 +12,10 @@ impl LocalBlobStore {
     pub fn new(dir: PathBuf) -> Self {
         Self { dir }
     }
+
+    fn path_for(&self, hash: &BlobHash) -> PathBuf {
+        self.dir.join(hash.0.replace(':', "_"))
+    }
 }
 
 #[async_trait::async_trait]
@@ -22,13 +26,14 @@ impl BlobStore for LocalBlobStore {
         _content_type: &str,
         content: &[u8],
     ) -> anyhow::Result<()> {
-        let path = self.dir.join(&hash.0);
+        fs::create_dir_all(&self.dir).await?;
+        let path = self.path_for(hash);
         fs::write(path, content).await?;
         Ok(())
     }
 
     async fn get_blob(&self, hash: &BlobHash) -> anyhow::Result<Option<Vec<u8>>> {
-        let path = self.dir.join(&hash.0);
+        let path = self.path_for(hash);
         if path.exists() {
             let data = fs::read(path).await?;
             Ok(Some(data))

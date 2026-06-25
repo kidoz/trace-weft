@@ -4,8 +4,10 @@ pub mod storage;
 use auth::{Auth, AuthConfig};
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
+    response::Response,
     routing::{get, post},
 };
 use sqlx::{PgPool, Row, SqlitePool, postgres::PgPoolOptions, sqlite::SqlitePoolOptions};
@@ -13,7 +15,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use trace_weft_core::SpanRecord;
+use trace_weft_core::{BlobHash, SpanRecord};
 use trace_weft_recorder::TraceStore;
 
 #[derive(Clone)]
@@ -134,6 +136,8 @@ pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/traces", get(list_traces))
         .route("/api/traces/{trace_id}", get(get_trace))
+        .route("/api/traces/{trace_id}/events", get(get_trace_events))
+        .route("/api/blobs/{hash}", get(get_blob))
         .route("/api/evals", get(list_evals))
         .route("/api/v1/batch", post(batch_ingest))
         .route("/api/hitl/pending", get(get_pending_approvals))
@@ -294,28 +298,105 @@ macro_rules! span_detail_json {
         let trace_id: String = row.get("trace_id");
         let span_id: String = row.get("span_id");
         let parent_span_id: Option<String> = row.get("parent_span_id");
+        let run_id: String = row.get("run_id");
+        let session_id: Option<String> = row.get("session_id");
+        let user_id_hash: Option<String> = row.get("user_id_hash");
+        let project_id: Option<String> = row.get("project_id");
         let span_kind: String = row.get("span_kind");
         let name: String = row.get("name");
         let start_time: i64 = row.get("start_time");
         let end_time: Option<i64> = row.get("end_time");
         let status: String = row.get("status");
+        let status_message: Option<String> = row.get("status_message");
+        let error_type: Option<String> = row.get("error_type");
+        let error_message_redacted: Option<String> = row.get("error_message_redacted");
         let attributes: String = row.get("attributes");
+        let otel_attributes: String = row.get("otel_attributes");
+        let openinference_attributes: String = row.get("openinference_attributes");
+        let memory_state: Option<String> = row.get("memory_state");
         let latency_ms: Option<i64> = row.get("latency_ms");
         let input_ref: Option<String> = row.get("input_ref");
         let output_ref: Option<String> = row.get("output_ref");
+        let prompt_template_id: Option<String> = row.get("prompt_template_id");
+        let prompt_version: Option<String> = row.get("prompt_version");
+        let model_provider: Option<String> = row.get("model_provider");
+        let model_name: Option<String> = row.get("model_name");
+        let tool_name: Option<String> = row.get("tool_name");
+        let tool_schema_hash: Option<String> = row.get("tool_schema_hash");
+        let retrieval_query_hash: Option<String> = row.get("retrieval_query_hash");
+        let retrieved_document_refs: String = row.get("retrieved_document_refs");
+        let token_usage: Option<String> = row.get("token_usage");
+        let cost_estimate: Option<String> = row.get("cost_estimate");
+        let retry_count: Option<i64> = row.get("retry_count");
+        let cache_hit: Option<bool> = row.get("cache_hit");
+        let redaction_policy: String = row.get("redaction_policy");
+        let schema_version: String = row.get("schema_version");
         serde_json::json!({
             "trace_id": trace_id,
             "span_id": span_id,
             "parent_span_id": parent_span_id,
+            "run_id": run_id,
+            "session_id": session_id,
+            "user_id_hash": user_id_hash,
+            "project_id": project_id,
             "span_kind": span_kind,
             "name": name,
             "start_time": start_time,
             "end_time": end_time,
             "status": status,
+            "status_message": status_message,
+            "error_type": error_type,
+            "error_message_redacted": error_message_redacted,
             "attributes": parse_json_column(&attributes)?,
+            "otel_attributes": parse_json_column(&otel_attributes)?,
+            "openinference_attributes": parse_json_column(&openinference_attributes)?,
+            "memory_state": parse_opt_json_column(memory_state)?,
             "latency_ms": latency_ms,
             "input_ref": parse_opt_json_column(input_ref)?,
             "output_ref": parse_opt_json_column(output_ref)?,
+            "prompt_template_id": prompt_template_id,
+            "prompt_version": prompt_version,
+            "model_provider": model_provider,
+            "model_name": model_name,
+            "tool_name": tool_name,
+            "tool_schema_hash": tool_schema_hash,
+            "retrieval_query_hash": retrieval_query_hash,
+            "retrieved_document_refs": parse_json_column(&retrieved_document_refs)?,
+            "token_usage": parse_opt_json_column(token_usage)?,
+            "cost_estimate": parse_opt_json_column(cost_estimate)?,
+            "retry_count": retry_count,
+            "cache_hit": cache_hit,
+            "redaction_policy": redaction_policy,
+            "schema_version": schema_version,
+        })
+    }};
+}
+
+/// One event row (see `get_trace_events`).
+macro_rules! event_detail_json {
+    ($row:expr) => {{
+        let row = $row;
+        let event_id: String = row.get("event_id");
+        let trace_id: String = row.get("trace_id");
+        let run_id: String = row.get("run_id");
+        let parent_span_id: Option<String> = row.get("parent_span_id");
+        let seq: i64 = row.get("seq");
+        let event_kind: String = row.get("event_kind");
+        let name: String = row.get("name");
+        let timestamp: i64 = row.get("timestamp");
+        let attributes: String = row.get("attributes");
+        let schema_version: String = row.get("schema_version");
+        serde_json::json!({
+            "event_id": event_id,
+            "trace_id": trace_id,
+            "run_id": run_id,
+            "parent_span_id": parent_span_id,
+            "seq": seq,
+            "event_kind": event_kind,
+            "name": name,
+            "timestamp": timestamp,
+            "attributes": parse_json_column(&attributes)?,
+            "schema_version": schema_version,
         })
     }};
 }
@@ -373,6 +454,30 @@ const LIST_EVALS_SQL_PG: &str = r#"
 const GET_TRACE_SQL_SQLITE: &str = "SELECT * FROM spans WHERE trace_id = ? AND (project_id = ? OR ? IS NULL) ORDER BY start_time ASC";
 
 const GET_TRACE_SQL_PG: &str = "SELECT * FROM spans WHERE trace_id = $1 AND (project_id = $2 OR $2 IS NULL) ORDER BY start_time ASC";
+
+const GET_TRACE_EVENTS_SQL_SQLITE: &str = r#"
+    SELECT e.*
+    FROM events e
+    WHERE e.trace_id = ?
+      AND EXISTS (
+        SELECT 1 FROM spans s
+        WHERE s.trace_id = e.trace_id
+          AND (s.project_id = ? OR ? IS NULL)
+      )
+    ORDER BY e.timestamp ASC, e.seq ASC
+"#;
+
+const GET_TRACE_EVENTS_SQL_PG: &str = r#"
+    SELECT e.*
+    FROM events e
+    WHERE e.trace_id = $1
+      AND EXISTS (
+        SELECT 1 FROM spans s
+        WHERE s.trace_id = e.trace_id
+          AND (s.project_id = $2 OR $2 IS NULL)
+      )
+    ORDER BY e.timestamp ASC, e.seq ASC
+"#;
 
 async fn list_traces(
     headers: HeaderMap,
@@ -471,6 +576,63 @@ async fn get_trace(
         }
     }
     Ok(Json(spans))
+}
+
+async fn get_trace_events(
+    Path(trace_id): Path<String>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    let project = authorize(&state, &headers)?.project().map(str::to_string);
+    let mut events = Vec::new();
+    match &state.pool {
+        DbPool::Sqlite(pool) => {
+            let rows = sqlx::query(GET_TRACE_EVENTS_SQL_SQLITE)
+                .bind(trace_id)
+                .bind(project.clone())
+                .bind(project)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
+            for row in &rows {
+                events.push(event_detail_json!(row));
+            }
+        }
+        DbPool::Postgres(pool) => {
+            let rows = sqlx::query(GET_TRACE_EVENTS_SQL_PG)
+                .bind(trace_id)
+                .bind(project)
+                .fetch_all(pool)
+                .await
+                .map_err(db_error)?;
+            for row in &rows {
+                events.push(event_detail_json!(row));
+            }
+        }
+    }
+    Ok(Json(events))
+}
+
+async fn get_blob(
+    Path(hash): Path<String>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Response<Body>, StatusCode> {
+    authorize(&state, &headers)?;
+    let hash = BlobHash(hash);
+    let Some(bytes) = state.blob_store.get_blob(&hash).await.map_err(db_error)? else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/octet-stream")
+        .header(header::CACHE_CONTROL, "no-store")
+        .body(Body::from(bytes))
+        .map_err(|e| {
+            tracing::error!("failed to build blob response: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
 }
 
 use serde::Deserialize;

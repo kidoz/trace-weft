@@ -1,6 +1,6 @@
 use anyhow::Result;
 use sqlx::{PgPool, Postgres, postgres::PgArguments, postgres::PgPoolOptions, query::Query};
-use trace_weft_core::SpanRecord;
+use trace_weft_core::{EventRecord, SpanRecord};
 use trace_weft_recorder::TraceStore;
 
 pub struct PostgresRecorder {
@@ -58,6 +58,21 @@ impl PostgresRecorder {
             CREATE INDEX IF NOT EXISTS idx_spans_trace_id ON spans(trace_id);
             CREATE INDEX IF NOT EXISTS idx_spans_run_id ON spans(run_id);
             CREATE INDEX IF NOT EXISTS idx_spans_project_id ON spans(project_id);
+
+            CREATE TABLE IF NOT EXISTS events (
+                event_id TEXT NOT NULL PRIMARY KEY,
+                trace_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                parent_span_id TEXT,
+                seq BIGINT NOT NULL,
+                event_kind TEXT NOT NULL,
+                name TEXT NOT NULL,
+                timestamp BIGINT NOT NULL,
+                attributes TEXT NOT NULL,
+                schema_version TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_id);
+            CREATE INDEX IF NOT EXISTS idx_events_parent_span_id ON events(parent_span_id);
             "#,
         );
         let q: Query<'_, Postgres, PgArguments> = q;
@@ -160,6 +175,39 @@ impl TraceStore for PostgresRecorder {
             .bind(redaction_policy)
             .bind(span.schema_version)
             .bind(span.project_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(())
+    }
+
+    async fn record_event(&self, event: EventRecord) -> Result<()> {
+        let event_kind = serde_json::to_string(&event.event_kind)?
+            .trim_matches('"')
+            .to_string();
+        let attributes = serde_json::to_string(&event.attributes)?;
+
+        let q = sqlx::query(
+            r#"
+            INSERT INTO events (
+                event_id, trace_id, run_id, parent_span_id, seq,
+                event_kind, name, timestamp, attributes, schema_version
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (event_id) DO NOTHING
+            "#,
+        );
+
+        let q: Query<'_, Postgres, PgArguments> = q;
+        q.bind(event.event_id.0.to_string())
+            .bind(event.trace_id.0.to_string())
+            .bind(event.run_id.0.to_string())
+            .bind(event.parent_span_id.map(|id| id.0.to_string()))
+            .bind(event.seq as i64)
+            .bind(event_kind)
+            .bind(event.name)
+            .bind(event.timestamp as i64)
+            .bind(attributes)
+            .bind(event.schema_version)
             .execute(&self.pool)
             .await?;
 
