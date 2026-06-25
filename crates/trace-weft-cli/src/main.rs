@@ -11,9 +11,9 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Start the local development server and UI
+    /// Start the local API server used by the web UI
     Dev {
-        /// Port to run the UI and API server on
+        /// Port to run the API server on
         #[arg(short, long, default_value_t = 3000)]
         port: u16,
 
