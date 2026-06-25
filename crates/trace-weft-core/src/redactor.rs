@@ -13,7 +13,6 @@ impl RegexRedactor {
 
     pub fn with_default_patterns() -> Self {
         let mut redactor = Self::new();
-        // Basic examples: email, simple API keys
         if let Ok(email_re) = Regex::new(r"(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}") {
             redactor.patterns.push(email_re);
         }
@@ -22,6 +21,19 @@ impl RegexRedactor {
         }
         if let Ok(bearer_re) = Regex::new(r"(?i)(bearer\s+[a-zA-Z0-9\-\._~+/\\]+)") {
             redactor.patterns.push(bearer_re);
+        }
+        if let Ok(secret_assignment_re) = Regex::new(
+            r#"(?i)\b(?:api[_-]?key|secret|token|client[_-]?secret)\s*[:=]\s*["']?[a-z0-9_\-]{16,}["']?"#,
+        ) {
+            redactor.patterns.push(secret_assignment_re);
+        }
+        if let Ok(phone_re) =
+            Regex::new(r"\+?(?:\d{1,3}[-.\s]?)?(?:\(?\d{3}\)?[-.\s]?)\d{3}[-.\s]?\d{4}\b")
+        {
+            redactor.patterns.push(phone_re);
+        }
+        if let Ok(card_re) = Regex::new(r"\b(?:\d[ -]*?){13,19}\b") {
+            redactor.patterns.push(card_re);
         }
         redactor
     }
@@ -104,6 +116,27 @@ mod tests {
     fn redacts_bearer_tokens() {
         let result = redactor().redact("Authorization: Bearer abc.DEF-123~xyz");
         assert_eq!(result.redacted_text, "Authorization: [REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn redacts_secret_assignments() {
+        let result = redactor().redact("api_key = tw_abcdefghijklmnopqrstuvwxyz");
+        assert_eq!(result.redacted_text, "[REDACTED]");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn redacts_phone_numbers() {
+        let result = redactor().redact("call +1 (415) 555-2671 tomorrow");
+        assert_eq!(result.redacted_text, "call [REDACTED] tomorrow");
+        assert_eq!(result.status, RedactionStatus::Redacted);
+    }
+
+    #[test]
+    fn redacts_credit_card_like_numbers() {
+        let result = redactor().redact("card 4242 4242 4242 4242");
+        assert_eq!(result.redacted_text, "card [REDACTED]");
         assert_eq!(result.status, RedactionStatus::Redacted);
     }
 
