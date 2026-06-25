@@ -243,8 +243,9 @@ impl SpanBuilder {
             }
             Err(e) => {
                 span.status = SpanStatus::Error;
-                span.error_type = Some(format!("{:?}", e)); // Naive type extraction
-                span.error_message_redacted = Some(e.to_string()); // Naive redaction
+                span.error_type = Some(std::any::type_name::<E>().to_string());
+                span.error_message_redacted =
+                    Some(crate::redact_text(&e.to_string()).redacted_text);
             }
         }
 

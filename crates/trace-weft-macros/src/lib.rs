@@ -126,8 +126,8 @@ fn expand(kind: TokenStream2, item: TokenStream) -> TokenStream {
                 Ok(_) => { _span.status = trace_weft::SpanStatus::Ok; }
                 Err(__e) => {
                     _span.status = trace_weft::SpanStatus::Error;
-                    _span.error_type = Some(format!("{:?}", __e));
-                    _span.error_message_redacted = Some(format!("{}", __e));
+                    _span.error_type = Some(std::any::type_name_of_val(__e).to_string());
+                    _span.error_message_redacted = Some(trace_weft::redact_text(&format!("{}", __e)).redacted_text);
                 }
             }
         }

@@ -110,6 +110,33 @@ async fn tool_builder_records_error_span() {
 }
 
 #[tokio::test]
+async fn builder_redacts_error_messages_without_content_capture() {
+    store();
+    let result = build_tool("e2e_tool_secret_err")
+        .tool_name("dangerous_tool")
+        .run(|| async {
+            Err::<(), String>("failed with api_key = tw_abcdefghijklmnopqrstuvwxyz".to_string())
+        })
+        .await;
+
+    assert!(result.is_err());
+
+    let spans = recorded_spans_named("e2e_tool_secret_err");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    let message = span
+        .error_message_redacted
+        .as_deref()
+        .expect("redacted error message recorded");
+    assert_eq!(message, "failed with [REDACTED]");
+    assert!(!message.contains("tw_abcdefghijklmnopqrstuvwxyz"));
+    assert_ne!(
+        span.error_type.as_deref(),
+        Some("failed with api_key = tw_abcdefghijklmnopqrstuvwxyz")
+    );
+}
+
+#[tokio::test]
 async fn builder_setters_populate_rich_span_fields() {
     store();
     let usage = TokenUsage {
@@ -391,6 +418,30 @@ async fn macro_records_error_status_on_err() {
     assert_eq!(span.status, SpanStatus::Error);
     assert_eq!(span.error_message_redacted.as_deref(), Some("kaboom"));
     assert!(span.error_type.is_some());
+}
+
+#[tool]
+async fn macro_error_with_secret_fn() -> Result<(), String> {
+    Err("failed with Bearer abc.DEF-123~xyz".to_string())
+}
+
+#[tokio::test]
+async fn macros_redact_error_messages_without_content_capture() {
+    store();
+    let result = macro_error_with_secret_fn().await;
+    assert!(result.is_err());
+
+    let spans = recorded_spans_named("macro_error_with_secret_fn");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    let message = span
+        .error_message_redacted
+        .as_deref()
+        .expect("redacted error message recorded");
+    assert_eq!(message, "failed with [REDACTED]");
+    assert!(!message.contains("abc.DEF"));
+    let error_type = span.error_type.as_deref().expect("error type recorded");
+    assert!(!error_type.contains("abc.DEF"));
 }
 
 #[derive(Serialize)]
