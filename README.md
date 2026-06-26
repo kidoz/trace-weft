@@ -297,6 +297,23 @@ OTLP/HTTP JSON ingestion (`/v1/traces`) decodes payloads with the
 `opentelemetry-proto` types, preserving original trace/span/parent IDs and
 returning `400` for malformed bodies.
 
+## Development Checks
+
+Workspace policy, API contract generation, CI checks, and UI test commands are
+documented in `DEVELOPMENT.md`. The short version:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo nextest run --workspace --all-features
+cargo deny check
+cargo machete
+npm --prefix apps/web run generate:api
+npm --prefix apps/web run lint
+npm --prefix apps/web run test
+npm --prefix apps/web run build
+```
+
 ## Crate Layout
 
 - `crates/trace-weft` - main user-facing SDK facade (builder, macros, events, capture, HITL, replay)
