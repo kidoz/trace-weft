@@ -213,7 +213,9 @@ impl SpanBuilder {
         crate::context::link_to_ambient(&mut span);
 
         // Mock / Replay interception
-        if let Some(mocked) = crate::replay::get_mocked_output(&span.name) {
+        if let Some(mocked) =
+            crate::replay::get_mocked_output(&span.span_id.0.to_string(), &span.name)
+        {
             span.end_time = Some(span.start_time);
             span.latency_ms = Some(0);
             span.status = SpanStatus::Ok;

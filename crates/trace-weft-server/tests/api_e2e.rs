@@ -332,6 +332,83 @@ async fn batch_ingest_persists_spans() {
 }
 
 #[tokio::test]
+async fn openapi_diff_and_replay_endpoints_are_served() {
+    let dir = TempDir::new().unwrap();
+    let (app, recorder) = test_app(dir.path()).await;
+
+    let mut original = trace_with_seed(0x0c00);
+    let mut replayed = trace_with_seed(0x0d00);
+    original[0].name = "workflow".into();
+    replayed[0].name = "workflow".into();
+    original[0].latency_ms = Some(100);
+    replayed[0].latency_ms = Some(250);
+
+    for span in original.iter().chain(replayed.iter()) {
+        recorder.record_span(span.clone()).await.unwrap();
+    }
+
+    let (status, contract) = get_json(&app, "/api/openapi.json").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(contract["openapi"], serde_json::json!("3.1.0"));
+
+    let original_trace = original[0].trace_id.0.to_string();
+    let replayed_trace = replayed[0].trace_id.0.to_string();
+    let (status, diff) = get_json(
+        &app,
+        &format!("/api/diff/{original_trace}/{replayed_trace}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(diff["trace_a"], serde_json::json!(original_trace));
+    assert!(
+        diff["summary"]["changed"].as_i64().unwrap() >= 1,
+        "latency change should be detected: {diff}"
+    );
+
+    let span_id = original[0].span_id.0.to_string();
+    let (status, plan) = get_json(
+        &app,
+        &format!("/api/traces/{original_trace}/replay-plan/{span_id}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(plan["trace_id"], serde_json::json!(original_trace));
+    assert_eq!(plan["target_span"]["span_id"], serde_json::json!(span_id));
+
+    let body = serde_json::json!({
+        "span_id": span_id,
+        "span_name": "workflow",
+        "mocked_output": {"ok": true},
+        "block_side_effects": true
+    });
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/replay/config")
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        config["config"]["block_side_effects"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        config["config"]["mocked_span_ids"].get(&span_id),
+        Some(&serde_json::json!({"ok": true}))
+    );
+}
+
+#[tokio::test]
 async fn hitl_endpoints_resolve_pending_approvals() {
     let dir = TempDir::new().unwrap();
     let (app, _recorder) = test_app(dir.path()).await;

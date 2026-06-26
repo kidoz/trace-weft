@@ -137,9 +137,16 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/traces", get(list_traces))
         .route("/api/traces/{trace_id}", get(get_trace))
         .route("/api/traces/{trace_id}/events", get(get_trace_events))
+        .route(
+            "/api/traces/{trace_id}/replay-plan/{span_id}",
+            get(get_replay_plan),
+        )
+        .route("/api/diff/{trace_a}/{trace_b}", get(get_trace_diff))
         .route("/api/blobs/{hash}", get(get_blob))
+        .route("/api/openapi.json", get(openapi_contract))
         .route("/api/evals", get(list_evals))
         .route("/api/v1/batch", post(batch_ingest))
+        .route("/api/replay/config", post(generate_replay_config))
         .route("/api/hitl/pending", get(get_pending_approvals))
         .route("/api/hitl/resolve", post(resolve_approval))
         .layer(local_cors())
@@ -581,6 +588,16 @@ async fn get_trace(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
     let project = authorize(&state, &headers)?.project().map(str::to_string);
+    Ok(Json(
+        trace_rows_for_project(&state, &trace_id, project).await?,
+    ))
+}
+
+async fn trace_rows_for_project(
+    state: &AppState,
+    trace_id: &str,
+    project: Option<String>,
+) -> Result<Vec<serde_json::Value>, StatusCode> {
     let mut spans = Vec::new();
     match &state.pool {
         DbPool::Sqlite(pool) => {
@@ -607,7 +624,7 @@ async fn get_trace(
             }
         }
     }
-    Ok(Json(spans))
+    Ok(spans)
 }
 
 async fn get_trace_events(
@@ -645,6 +662,182 @@ async fn get_trace_events(
     Ok(Json(events))
 }
 
+async fn openapi_contract() -> Result<Json<serde_json::Value>, StatusCode> {
+    serde_json::from_str(include_str!("../../../schemas/api/trace-weft.openapi.json"))
+        .map(Json)
+        .map_err(|e| {
+            tracing::error!("embedded OpenAPI contract is invalid JSON: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })
+}
+
+fn trace_span_key(span: &serde_json::Value) -> String {
+    format!(
+        "{}::{}",
+        span.get("span_kind")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown"),
+        span.get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unnamed")
+    )
+}
+
+fn field_changed(a: &serde_json::Value, b: &serde_json::Value, key: &str) -> Option<String> {
+    (a.get(key) != b.get(key)).then(|| key.to_string())
+}
+
+fn diff_rows(
+    spans_a: Vec<serde_json::Value>,
+    spans_b: Vec<serde_json::Value>,
+) -> (Vec<serde_json::Value>, serde_json::Value) {
+    let mut used_b = std::collections::HashSet::new();
+    let mut b_by_key: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+    for (idx, span) in spans_b.iter().enumerate() {
+        b_by_key.entry(trace_span_key(span)).or_default().push(idx);
+    }
+
+    let mut rows = Vec::new();
+    let mut changed = 0usize;
+    let mut removed = 0usize;
+    let mut matched = 0usize;
+
+    for (idx_a, span_a) in spans_a.iter().enumerate() {
+        let key = trace_span_key(span_a);
+        let match_idx = b_by_key
+            .get(&key)
+            .and_then(|candidates| candidates.iter().find(|idx| !used_b.contains(*idx)))
+            .copied();
+
+        if let Some(idx_b) = match_idx {
+            used_b.insert(idx_b);
+            matched += 1;
+            let span_b = &spans_b[idx_b];
+            let changed_fields: Vec<String> = [
+                "status",
+                "latency_ms",
+                "attributes",
+                "token_usage",
+                "cost_estimate",
+                "prompt_version",
+                "model_name",
+                "retrieval_query_hash",
+            ]
+            .iter()
+            .filter_map(|field| field_changed(span_a, span_b, field))
+            .collect();
+            if changed_fields.is_empty() {
+                rows.push(serde_json::json!({
+                    "key": format!("pair-{idx_a}-{idx_b}"),
+                    "change": "unchanged",
+                    "changed_fields": changed_fields,
+                    "a": span_a,
+                    "b": span_b,
+                }));
+            } else {
+                changed += 1;
+                rows.push(serde_json::json!({
+                    "key": format!("pair-{idx_a}-{idx_b}"),
+                    "change": "changed",
+                    "changed_fields": changed_fields,
+                    "a": span_a,
+                    "b": span_b,
+                }));
+            }
+        } else {
+            removed += 1;
+            rows.push(serde_json::json!({
+                "key": format!("a-{idx_a}"),
+                "change": "removed",
+                "changed_fields": [],
+                "a": span_a,
+                "b": null,
+            }));
+        }
+    }
+
+    let mut added = 0usize;
+    for (idx_b, span_b) in spans_b.iter().enumerate() {
+        if !used_b.contains(&idx_b) {
+            added += 1;
+            rows.push(serde_json::json!({
+                "key": format!("b-{idx_b}"),
+                "change": "added",
+                "changed_fields": [],
+                "a": null,
+                "b": span_b,
+            }));
+        }
+    }
+
+    (
+        rows,
+        serde_json::json!({
+            "changed": changed,
+            "added": added,
+            "removed": removed,
+            "matched": matched,
+        }),
+    )
+}
+
+async fn get_trace_diff(
+    Path((trace_a, trace_b)): Path<(String, String)>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let project = authorize(&state, &headers)?.project().map(str::to_string);
+    let spans_a = trace_rows_for_project(&state, &trace_a, project.clone()).await?;
+    let spans_b = trace_rows_for_project(&state, &trace_b, project).await?;
+    let (rows, summary) = diff_rows(spans_a, spans_b);
+    Ok(Json(serde_json::json!({
+        "trace_a": trace_a,
+        "trace_b": trace_b,
+        "summary": summary,
+        "rows": rows,
+    })))
+}
+
+async fn get_replay_plan(
+    Path((trace_id, span_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let project = authorize(&state, &headers)?.project().map(str::to_string);
+    let spans = trace_rows_for_project(&state, &trace_id, project).await?;
+    let Some(target) = spans.iter().find(|span| {
+        span.get("span_id")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|id| id == span_id)
+    }) else {
+        return Err(StatusCode::NOT_FOUND);
+    };
+
+    let span_name = target
+        .get("name")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("span");
+    let mut mocked_span_ids = serde_json::Map::new();
+    mocked_span_ids.insert(
+        span_id.clone(),
+        target
+            .get("output_ref")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+    );
+    Ok(Json(serde_json::json!({
+        "trace_id": trace_id,
+        "target_span": target,
+        "config_template": {
+            "mocked_spans": {},
+            "mocked_span_ids": mocked_span_ids,
+            "block_side_effects": true
+        },
+        "command": format!("TRACE_WEFT_REPLAY_FILE=replay_config_{span_name}.json cargo run"),
+    })))
+}
+
 async fn get_blob(
     Path(hash): Path<String>,
     headers: HeaderMap,
@@ -667,8 +860,53 @@ async fn get_blob(
         })
 }
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use trace_weft::hitl::HitlResponse;
+
+#[derive(Deserialize)]
+struct ReplayConfigRequest {
+    span_id: String,
+    span_name: String,
+    mocked_output: serde_json::Value,
+    #[serde(default = "default_block_side_effects")]
+    block_side_effects: bool,
+}
+
+#[derive(Serialize)]
+struct ReplayConfigResponse {
+    file_name: String,
+    command: String,
+    config: trace_weft::ReplayConfig,
+}
+
+fn default_block_side_effects() -> bool {
+    true
+}
+
+async fn generate_replay_config(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<ReplayConfigRequest>,
+) -> Result<Json<ReplayConfigResponse>, StatusCode> {
+    authorize(&state, &headers)?;
+    let mut config = trace_weft::ReplayConfig::default();
+    config
+        .mocked_span_ids
+        .insert(req.span_id.clone(), req.mocked_output);
+    config.block_side_effects = req.block_side_effects;
+
+    let safe_name = req
+        .span_name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect::<String>();
+
+    Ok(Json(ReplayConfigResponse {
+        file_name: format!("replay_config_{safe_name}.json"),
+        command: format!("TRACE_WEFT_REPLAY_FILE=replay_config_{safe_name}.json cargo run"),
+        config,
+    }))
+}
 
 async fn get_pending_approvals(
     headers: HeaderMap,

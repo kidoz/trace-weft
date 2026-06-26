@@ -10,7 +10,11 @@ lazy_static::lazy_static! {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ReplayConfig {
+    #[serde(default)]
     pub mocked_spans: HashMap<String, Value>,
+    #[serde(default)]
+    pub mocked_span_ids: HashMap<String, Value>,
+    #[serde(default)]
     pub block_side_effects: bool,
 }
 
@@ -39,11 +43,15 @@ pub fn init_replay(config: ReplayConfig) {
     }
 }
 
-pub fn get_mocked_output(span_name: &str) -> Option<Value> {
+pub fn get_mocked_output(span_id: &str, span_name: &str) -> Option<Value> {
     if let Ok(ctx) = REPLAY_CONTEXT.lock()
         && let Some(config) = ctx.as_ref()
     {
-        return config.mocked_spans.get(span_name).cloned();
+        return config
+            .mocked_span_ids
+            .get(span_id)
+            .or_else(|| config.mocked_spans.get(span_name))
+            .cloned();
     }
     None
 }
