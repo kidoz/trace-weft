@@ -1,0 +1,29 @@
+# Local Postgres for TraceWeft's Postgres-backed tests and for running the
+# server against Postgres instead of SQLite.
+#
+#   docker compose up -d postgres        # start
+#   just test-pg                         # run the gated Postgres e2e suite
+#   docker compose down -v               # stop and wipe the volume
+#
+# The default DSN used by the tests and below is:
+#   postgres://postgres:postgres@localhost:5432/trace_weft_test
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: trace-weft-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: trace_weft_test
+    ports:
+      - "5432:5432"
+    volumes:
+      - trace-weft-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d trace_weft_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  trace-weft-pgdata:

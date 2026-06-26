@@ -277,7 +277,9 @@ run against either backend, selected by the database URL:
 
 - **SQLite** (default, local-first) — any path or `sqlite://` URL.
 - **Postgres** — a `postgres://` / `postgresql://` URL. The schema is created on
-  first connect and the same endpoints serve it with output matching SQLite.
+  first connect and the same endpoints serve it with output matching SQLite. A
+  local instance for development and the Postgres-backed tests is provided via
+  `docker compose up -d postgres`; run the parity suite with `just test-pg`.
 
 API-key authentication and per-project tenant isolation are configured via
 environment variables:

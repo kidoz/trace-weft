@@ -35,6 +35,13 @@ check-rust:
 test-rust:
     cargo test --workspace --all-features
 
+# Run the Postgres-backed e2e tests against the docker compose Postgres.
+# Start it first with: docker compose up -d postgres
+test-pg:
+    TRACE_WEFT_PG_TEST=1 \
+    TRACE_WEFT_PG_URL=postgres://postgres:postgres@localhost:5432/trace_weft_test \
+    cargo test -p trace-weft-server --test postgres_e2e
+
 # Build Rust workspace
 build-rust:
     cargo build --workspace --all-features
