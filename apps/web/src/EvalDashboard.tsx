@@ -14,21 +14,28 @@ export interface EvalSummary {
 export function EvalDashboard({ onSelectTrace }: { onSelectTrace: (id: string) => void }) {
   const [evals, setEvals] = useState<EvalSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(apiUrl('/api/evals'))
-      .then((res) => res.json())
-      .then((data: EvalSummary[]) => {
-        setEvals(data);
+      .then((res) => {
+        if (!res.ok) throw new Error(`eval list request failed: ${res.status}`);
+        return res.json();
+      })
+      .then((data) => {
+        setEvals(Array.isArray(data) ? (data as EvalSummary[]) : []);
+        setError(null);
         setLoading(false);
       })
       .catch((err: unknown) => {
         console.error('Failed to fetch evals', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch evaluations');
         setLoading(false);
       });
   }, []);
 
   if (loading) return <div className="p-8 text-ink-dim">Loading evaluations...</div>;
+  if (error) return <div className="p-8 text-error">{error}</div>;
   if (evals.length === 0)
     return (
       <div className="p-8 text-ink-dim">No evaluations found. Run a local eval runner first.</div>

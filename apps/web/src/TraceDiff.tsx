@@ -153,24 +153,31 @@ export function TraceDiff({
   const [spansA, setSpansA] = useState<Span[]>([]);
   const [spansB, setSpansB] = useState<Span[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      fetch(apiUrl(`/api/traces/${traceA}`)).then((res) => res.json()),
-      fetch(apiUrl(`/api/traces/${traceB}`)).then((res) => res.json()),
-    ])
+    const fetchTrace = (id: string) =>
+      fetch(apiUrl(`/api/traces/${id}`)).then((res) => {
+        if (!res.ok) throw new Error(`trace ${id.slice(0, 8)} request failed: ${res.status}`);
+        return res.json();
+      });
+
+    Promise.all([fetchTrace(traceA), fetchTrace(traceB)])
       .then(([dataA, dataB]) => {
         setSpansA(Array.isArray(dataA) ? dataA : []);
         setSpansB(Array.isArray(dataB) ? dataB : []);
+        setError(null);
         setLoading(false);
       })
       .catch((err) => {
         console.error('Failed to fetch traces for diff', err);
+        setError(err instanceof Error ? err.message : 'Failed to fetch traces for diff');
         setLoading(false);
       });
   }, [traceA, traceB]);
 
   if (loading) return <div className="p-6 text-ink-dim">Loading diff...</div>;
+  if (error) return <div className="p-6 text-error">{error}</div>;
 
   const rows = alignSpans(spansA, spansB);
   const changedCount = rows.filter(
