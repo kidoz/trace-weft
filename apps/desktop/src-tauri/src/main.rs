@@ -113,7 +113,6 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
             server_info,
             server_running,
