@@ -1,0 +1,353 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "TraceWeft Local API",
+    "version": "0.2.0"
+  },
+  "paths": {
+    "/api/traces": {
+      "get": {
+        "operationId": "listTraces",
+        "responses": {
+          "200": {
+            "description": "Recent trace summaries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/TraceSummary" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/traces/{trace_id}": {
+      "get": {
+        "operationId": "getTrace",
+        "parameters": [{ "$ref": "#/components/parameters/TraceId" }],
+        "responses": {
+          "200": {
+            "description": "Trace spans ordered by start time",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/Span" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/traces/{trace_id}/events": {
+      "get": {
+        "operationId": "getTraceEvents",
+        "parameters": [{ "$ref": "#/components/parameters/TraceId" }],
+        "responses": {
+          "200": {
+            "description": "Trace events ordered by timestamp and sequence",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/TraceEvent" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/traces/{trace_id}/replay-plan/{span_id}": {
+      "get": {
+        "operationId": "getReplayPlan",
+        "parameters": [
+          { "$ref": "#/components/parameters/TraceId" },
+          { "$ref": "#/components/parameters/SpanId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replay template for a target span",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReplayPlan" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/diff/{trace_a}/{trace_b}": {
+      "get": {
+        "operationId": "getTraceDiff",
+        "parameters": [
+          { "$ref": "#/components/parameters/TraceA" },
+          { "$ref": "#/components/parameters/TraceB" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Server-side trace diff",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TraceDiffResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/replay/config": {
+      "post": {
+        "operationId": "generateReplayConfig",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ReplayConfigRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Downloadable replay config payload",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ReplayConfigResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/evals": {
+      "get": {
+        "operationId": "listEvals",
+        "responses": {
+          "200": {
+            "description": "Evaluator spans",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/EvalSummary" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "TraceId": {
+        "name": "trace_id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "SpanId": {
+        "name": "span_id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "TraceA": {
+        "name": "trace_a",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      },
+      "TraceB": {
+        "name": "trace_b",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string" }
+      }
+    },
+    "schemas": {
+      "JsonValue": {},
+      "BlobRef": {
+        "type": "object",
+        "required": ["hash", "content_type", "size_bytes", "created_at_timestamp", "redaction_status", "encryption_status", "storage_backend"],
+        "properties": {
+          "hash": { "type": "string" },
+          "content_type": { "type": "string" },
+          "size_bytes": { "type": "number" },
+          "created_at_timestamp": { "type": "number" },
+          "redaction_status": { "type": "string" },
+          "encryption_status": { "type": "string" },
+          "storage_backend": { "type": "string" },
+          "preview_text_redacted": { "type": ["string", "null"] }
+        }
+      },
+      "TraceSummary": {
+        "type": "object",
+        "required": ["trace_id", "run_id", "start_time", "end_time", "span_count", "status"],
+        "properties": {
+          "trace_id": { "type": "string" },
+          "run_id": { "type": "string" },
+          "start_time": { "type": "number" },
+          "end_time": { "type": ["number", "null"] },
+          "span_count": { "type": "number" },
+          "status": { "type": "string" },
+          "root_name": { "type": ["string", "null"] },
+          "root_span_kind": { "type": ["string", "null"] },
+          "model_provider": { "type": ["string", "null"] },
+          "model_name": { "type": ["string", "null"] },
+          "error_summary": { "type": ["string", "null"] }
+        }
+      },
+      "Span": {
+        "type": "object",
+        "required": ["trace_id", "span_id", "parent_span_id", "run_id", "span_kind", "name", "start_time", "end_time", "status", "attributes", "latency_ms", "input_ref", "output_ref"],
+        "properties": {
+          "trace_id": { "type": "string" },
+          "span_id": { "type": "string" },
+          "parent_span_id": { "type": ["string", "null"] },
+          "run_id": { "type": "string" },
+          "session_id": { "type": ["string", "null"] },
+          "user_id_hash": { "type": ["string", "null"] },
+          "project_id": { "type": ["string", "null"] },
+          "span_kind": { "type": "string" },
+          "name": { "type": "string" },
+          "start_time": { "type": "number" },
+          "end_time": { "type": ["number", "null"] },
+          "status": { "type": "string" },
+          "status_message": { "type": ["string", "null"] },
+          "error_type": { "type": ["string", "null"] },
+          "error_message_redacted": { "type": ["string", "null"] },
+          "attributes": { "type": "object", "additionalProperties": true },
+          "otel_attributes": { "type": "object", "additionalProperties": true },
+          "openinference_attributes": { "type": "object", "additionalProperties": true },
+          "latency_ms": { "type": ["number", "null"] },
+          "input_ref": { "anyOf": [{ "$ref": "#/components/schemas/BlobRef" }, { "type": "null" }] },
+          "output_ref": { "anyOf": [{ "$ref": "#/components/schemas/BlobRef" }, { "type": "null" }] },
+          "retrieved_document_refs": { "type": "array", "items": { "$ref": "#/components/schemas/BlobRef" } },
+          "prompt_template_id": { "type": ["string", "null"] },
+          "prompt_version": { "type": ["string", "null"] },
+          "model_provider": { "type": ["string", "null"] },
+          "model_name": { "type": ["string", "null"] },
+          "tool_name": { "type": ["string", "null"] },
+          "tool_schema_hash": { "type": ["string", "null"] },
+          "retrieval_query_hash": { "type": ["string", "null"] },
+          "cost_estimate": { "anyOf": [{ "$ref": "#/components/schemas/CostEstimate" }, { "type": "null" }] },
+          "token_usage": { "anyOf": [{ "$ref": "#/components/schemas/TokenUsage" }, { "type": "null" }] },
+          "memory_state": { "type": ["object", "null"], "additionalProperties": true },
+          "retry_count": { "type": ["number", "null"] },
+          "cache_hit": { "type": ["boolean", "null"] },
+          "redaction_policy": { "type": ["string", "null"] },
+          "schema_version": { "type": ["string", "null"] }
+        }
+      },
+      "TokenUsage": {
+        "type": "object",
+        "required": ["input", "output", "reasoning", "breakdown"],
+        "properties": {
+          "input": { "type": "number" },
+          "output": { "type": "number" },
+          "reasoning": { "type": ["number", "null"] },
+          "breakdown": { "type": "object", "additionalProperties": { "type": "number" } }
+        }
+      },
+      "CostEstimate": {
+        "type": "object",
+        "required": ["currency", "amount"],
+        "properties": {
+          "currency": { "type": "string" },
+          "amount": { "type": "number" }
+        }
+      },
+      "TraceEvent": {
+        "type": "object",
+        "required": ["event_id", "trace_id", "run_id", "parent_span_id", "seq", "event_kind", "name", "timestamp", "attributes", "schema_version"],
+        "properties": {
+          "event_id": { "type": "string" },
+          "trace_id": { "type": "string" },
+          "run_id": { "type": "string" },
+          "parent_span_id": { "type": ["string", "null"] },
+          "seq": { "type": "number" },
+          "event_kind": { "type": "string" },
+          "name": { "type": "string" },
+          "timestamp": { "type": "number" },
+          "attributes": { "type": "object", "additionalProperties": true },
+          "schema_version": { "type": "string" }
+        }
+      },
+      "EvalSummary": {
+        "type": "object",
+        "required": ["trace_id", "span_id", "name", "start_time", "status", "attributes"],
+        "properties": {
+          "trace_id": { "type": "string" },
+          "span_id": { "type": "string" },
+          "name": { "type": "string" },
+          "start_time": { "type": "number" },
+          "status": { "type": "string" },
+          "attributes": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "ReplayConfig": {
+        "type": "object",
+        "required": ["mocked_spans", "mocked_span_ids", "block_side_effects"],
+        "properties": {
+          "mocked_spans": { "type": "object", "additionalProperties": true },
+          "mocked_span_ids": { "type": "object", "additionalProperties": true },
+          "block_side_effects": { "type": "boolean" }
+        }
+      },
+      "ReplayPlan": {
+        "type": "object",
+        "required": ["trace_id", "target_span", "config_template", "command"],
+        "properties": {
+          "trace_id": { "type": "string" },
+          "target_span": { "$ref": "#/components/schemas/Span" },
+          "config_template": { "$ref": "#/components/schemas/ReplayConfig" },
+          "command": { "type": "string" }
+        }
+      },
+      "ReplayConfigRequest": {
+        "type": "object",
+        "required": ["span_id", "span_name", "mocked_output"],
+        "properties": {
+          "span_id": { "type": "string" },
+          "span_name": { "type": "string" },
+          "mocked_output": {},
+          "block_side_effects": { "type": "boolean" }
+        }
+      },
+      "ReplayConfigResponse": {
+        "type": "object",
+        "required": ["file_name", "command", "config"],
+        "properties": {
+          "file_name": { "type": "string" },
+          "command": { "type": "string" },
+          "config": { "$ref": "#/components/schemas/ReplayConfig" }
+        }
+      },
+      "TraceDiffRow": {
+        "type": "object",
+        "required": ["key", "change", "changed_fields", "a", "b"],
+        "properties": {
+          "key": { "type": "string" },
+          "change": { "type": "string", "enum": ["unchanged", "changed", "added", "removed"] },
+          "changed_fields": { "type": "array", "items": { "type": "string" } },
+          "a": { "anyOf": [{ "$ref": "#/components/schemas/Span" }, { "type": "null" }] },
+          "b": { "anyOf": [{ "$ref": "#/components/schemas/Span" }, { "type": "null" }] }
+        }
+      },
+      "TraceDiffResponse": {
+        "type": "object",
+        "required": ["trace_a", "trace_b", "summary", "rows"],
+        "properties": {
+          "trace_a": { "type": "string" },
+          "trace_b": { "type": "string" },
+          "summary": { "type": "object", "additionalProperties": { "type": "number" } },
+          "rows": { "type": "array", "items": { "$ref": "#/components/schemas/TraceDiffRow" } }
+        }
+      }
+    }
+  }
+}
