@@ -5,6 +5,7 @@ import { TraceDiff } from './TraceDiff';
 import { HitlDashboard } from './HitlDashboard';
 import { EvalDashboard } from './EvalDashboard';
 import { TraceWeftMark } from './IconSystem';
+import { ApiKeyField } from './ApiKeyField';
 
 type Tab = 'traces' | 'evals';
 
@@ -67,10 +68,7 @@ function App() {
           {navTab('evals', 'Evaluations')}
         </nav>
 
-        <div className="hidden items-center gap-2 rounded-pill border border-line bg-panel px-3 py-1.5 text-xs text-ink-mid md:flex">
-          <span className="h-2 w-2 rounded-full bg-flow shadow-[0_0_8px_rgba(86,207,225,0.6)]" />
-          <span className="font-mono">127.0.0.1:3000</span>
-        </div>
+        <ApiKeyField />
       </header>
 
       <HitlDashboard />

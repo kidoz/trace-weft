@@ -1,3 +1,4 @@
+import { authHeaders } from './auth';
 import type {
   EvalSummary,
   ReplayConfigRequest,
@@ -22,7 +23,7 @@ export const API_BASE = import.meta.env.VITE_API_BASE ?? '';
 export const apiUrl = (path: string): string => `${API_BASE}${path}`;
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(apiUrl(path));
+  const res = await fetch(apiUrl(path), { headers: { ...authHeaders() } });
   if (!res.ok) throw new Error(`${path} request failed: ${res.status}`);
   return (await res.json()) as T;
 }
@@ -30,7 +31,7 @@ async function getJson<T>(path: string): Promise<T> {
 async function postJson<TResponse>(path: string, body: unknown): Promise<TResponse> {
   const res = await fetch(apiUrl(path), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} request failed: ${res.status}`);
@@ -63,6 +64,13 @@ export const api = {
   }) => postJson<unknown>('/api/hitl/resolve', body),
   getReplayPlan: (traceId: string, spanId: string) =>
     getJson<ReplayPlan>(`/api/traces/${traceId}/replay-plan/${spanId}`),
+  getBlobText: async (hash: string): Promise<string> => {
+    const res = await fetch(apiUrl(`/api/blobs/${encodeURIComponent(hash)}`), {
+      headers: { ...authHeaders() },
+    });
+    if (!res.ok) throw new Error(`blob request failed: ${res.status}`);
+    return res.text();
+  },
   generateReplayConfig: (body: ReplayConfigRequest) =>
     postJson<ReplayConfigResponse>('/api/replay/config', body),
 };

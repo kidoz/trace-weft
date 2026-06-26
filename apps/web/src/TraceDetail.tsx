@@ -9,7 +9,7 @@ import { MemoryDiff } from './MemoryDiff';
 import { JsonView } from './JsonView';
 import { SpanKindBadge, StatusBadge } from './IconSystem';
 import { spanKindColor } from './spanColors';
-import { api, apiUrl, queryKeys, type BlobRef, type Span, type TraceEvent } from './api';
+import { api, queryKeys, type BlobRef, type Span, type TraceEvent } from './api';
 
 type ViewMode = 'waterfall' | 'graph' | 'transcript' | 'content';
 
@@ -601,9 +601,7 @@ function BlobPreview({ label, blob }: { label: string; blob: BlobRef }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(apiUrl(`/api/blobs/${encodeURIComponent(blob.hash)}`));
-      if (!res.ok) throw new Error(`blob request failed: ${res.status}`);
-      const text = await res.text();
+      const text = await api.getBlobText(blob.hash);
       setContent(text.length > 12000 ? `${text.slice(0, 12000)}\n...` : text);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load blob');
