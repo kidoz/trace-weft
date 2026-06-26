@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use sqlx::{Row, sqlite::SqlitePoolOptions};
 use tempfile::TempDir;
 use trace_weft_core::test_util::{sample_event, sample_span_full, sample_span_minimal};
-use trace_weft_core::{CapturePolicy, EventRecord, SpanRecord, TokenUsage};
+use trace_weft_core::{CapturePolicy, EventRecord, SpanRecord, SpanStatus, TokenUsage};
 use trace_weft_recorder::sqlite::SqliteRecorder;
 use trace_weft_recorder::{DualRecorder, LocalConfig, NullStore, TraceStore};
 
@@ -97,6 +97,52 @@ async fn sqlite_recorder_persists_minimal_span_with_nulls() {
     assert_eq!(row.get::<Option<String>, _>("token_usage"), None);
     assert_eq!(row.get::<Option<String>, _>("input_ref"), None);
     assert_eq!(row.get::<Option<bool>, _>("cache_hit"), None);
+}
+
+#[tokio::test]
+async fn sqlite_recorder_upserts_span_on_repeated_id() {
+    // A HITL breakpoint records the same span_id twice: first PendingApproval,
+    // then Ok once resolved. The second write must replace the first rather than
+    // fail the primary key — otherwise the approved span stays stuck pending.
+    let dir = TempDir::new().unwrap();
+    let db_path = dir.path().join("traces.sqlite");
+    let recorder = SqliteRecorder::new(db_path.clone()).await.unwrap();
+
+    let mut span = sample_span_minimal();
+    span.status = SpanStatus::PendingApproval;
+    span.end_time = None;
+    span.latency_ms = None;
+    recorder.record_span(span.clone()).await.unwrap();
+
+    // Resolve the breakpoint: same span_id, terminal state.
+    span.status = SpanStatus::Ok;
+    span.end_time = Some(span.start_time + 50);
+    span.latency_ms = Some(50);
+    recorder.record_span(span.clone()).await.unwrap();
+
+    let pool = open_pool(&db_path).await;
+    let count: i64 = sqlx::query("SELECT COUNT(*) AS n FROM spans WHERE span_id = ?")
+        .bind(span.span_id.0.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+        .get("n");
+    assert_eq!(count, 1, "repeated span_id must upsert, not duplicate");
+
+    let row = sqlx::query("SELECT * FROM spans WHERE span_id = ?")
+        .bind(span.span_id.0.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(row.get::<String, _>("status"), "ok", "resolved state must win");
+    assert_eq!(
+        row.get::<Option<i64>, _>("end_time").map(|t| t as u64),
+        span.end_time
+    );
+    assert_eq!(
+        row.get::<Option<i64>, _>("latency_ms").map(|t| t as u64),
+        span.latency_ms
+    );
 }
 
 #[tokio::test]

@@ -81,6 +81,31 @@ impl TraceStore for SqliteRecorder {
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?
             )
+            -- A span may be recorded twice with the same span_id (e.g. a HITL
+            -- breakpoint: first PendingApproval, then Ok once resolved). Upsert
+            -- so the resolved state replaces the pending row instead of failing
+            -- the primary key. For ordinary single-write spans the conflict
+            -- arm never fires.
+            ON CONFLICT(span_id) DO UPDATE SET
+                trace_id=excluded.trace_id, parent_span_id=excluded.parent_span_id,
+                run_id=excluded.run_id, session_id=excluded.session_id,
+                user_id_hash=excluded.user_id_hash, span_kind=excluded.span_kind,
+                name=excluded.name, start_time=excluded.start_time, end_time=excluded.end_time,
+                status=excluded.status, status_message=excluded.status_message,
+                error_type=excluded.error_type, error_message_redacted=excluded.error_message_redacted,
+                attributes=excluded.attributes, otel_attributes=excluded.otel_attributes,
+                openinference_attributes=excluded.openinference_attributes,
+                memory_state=excluded.memory_state, input_ref=excluded.input_ref,
+                output_ref=excluded.output_ref, prompt_template_id=excluded.prompt_template_id,
+                prompt_version=excluded.prompt_version, model_provider=excluded.model_provider,
+                model_name=excluded.model_name, tool_name=excluded.tool_name,
+                tool_schema_hash=excluded.tool_schema_hash,
+                retrieval_query_hash=excluded.retrieval_query_hash,
+                retrieved_document_refs=excluded.retrieved_document_refs,
+                token_usage=excluded.token_usage, cost_estimate=excluded.cost_estimate,
+                latency_ms=excluded.latency_ms, retry_count=excluded.retry_count,
+                cache_hit=excluded.cache_hit, redaction_policy=excluded.redaction_policy,
+                schema_version=excluded.schema_version, project_id=excluded.project_id
             "#,
         )
         .bind(trace_id).bind(span_id).bind(parent_span_id).bind(run_id).bind(session_id).bind(span.user_id_hash)

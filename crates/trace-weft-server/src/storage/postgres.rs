@@ -144,7 +144,31 @@ impl TraceStore for PostgresRecorder {
                 $28, $29, $30, $31, $32, $33,
                 $34, $35, $36
             )
-            ON CONFLICT (span_id) DO NOTHING
+            -- A span may be recorded twice with the same span_id (e.g. a HITL
+            -- breakpoint: first PendingApproval, then Ok once resolved). Upsert
+            -- so the resolved state replaces the pending row; `DO NOTHING` would
+            -- silently discard it. For ordinary single-write spans the conflict
+            -- arm never fires.
+            ON CONFLICT (span_id) DO UPDATE SET
+                trace_id=EXCLUDED.trace_id, parent_span_id=EXCLUDED.parent_span_id,
+                run_id=EXCLUDED.run_id, session_id=EXCLUDED.session_id,
+                user_id_hash=EXCLUDED.user_id_hash, span_kind=EXCLUDED.span_kind,
+                name=EXCLUDED.name, start_time=EXCLUDED.start_time, end_time=EXCLUDED.end_time,
+                status=EXCLUDED.status, status_message=EXCLUDED.status_message,
+                error_type=EXCLUDED.error_type, error_message_redacted=EXCLUDED.error_message_redacted,
+                attributes=EXCLUDED.attributes, otel_attributes=EXCLUDED.otel_attributes,
+                openinference_attributes=EXCLUDED.openinference_attributes,
+                memory_state=EXCLUDED.memory_state, input_ref=EXCLUDED.input_ref,
+                output_ref=EXCLUDED.output_ref, prompt_template_id=EXCLUDED.prompt_template_id,
+                prompt_version=EXCLUDED.prompt_version, model_provider=EXCLUDED.model_provider,
+                model_name=EXCLUDED.model_name, tool_name=EXCLUDED.tool_name,
+                tool_schema_hash=EXCLUDED.tool_schema_hash,
+                retrieval_query_hash=EXCLUDED.retrieval_query_hash,
+                retrieved_document_refs=EXCLUDED.retrieved_document_refs,
+                token_usage=EXCLUDED.token_usage, cost_estimate=EXCLUDED.cost_estimate,
+                latency_ms=EXCLUDED.latency_ms, retry_count=EXCLUDED.retry_count,
+                cache_hit=EXCLUDED.cache_hit, redaction_policy=EXCLUDED.redaction_policy,
+                schema_version=EXCLUDED.schema_version, project_id=EXCLUDED.project_id
             "#,
         );
 
