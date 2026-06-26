@@ -134,7 +134,11 @@ async fn sqlite_recorder_upserts_span_on_repeated_id() {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(row.get::<String, _>("status"), "ok", "resolved state must win");
+    assert_eq!(
+        row.get::<String, _>("status"),
+        "ok",
+        "resolved state must win"
+    );
     assert_eq!(
         row.get::<Option<i64>, _>("end_time").map(|t| t as u64),
         span.end_time
