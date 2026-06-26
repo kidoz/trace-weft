@@ -14,6 +14,7 @@ workspace = true
 trace-weft-core = { version = "0.3.0", path = "../trace-weft-core" }
 trace-weft = { version = "0.3.0", path = "../trace-weft" }
 trace-weft-recorder = { version = "0.3.0", path = "../trace-weft-recorder" }
+trace-weft-ingest = { version = "0.3.0", path = "../trace-weft-ingest" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

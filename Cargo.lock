@@ -5426,6 +5426,7 @@ dependencies = [
  "tower-http 0.7.0",
  "trace-weft",
  "trace-weft-core",
+ "trace-weft-ingest",
  "trace-weft-recorder",
  "tracing",
  "uuid",

@@ -146,6 +146,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/openapi.json", get(openapi_contract))
         .route("/api/evals", get(list_evals))
         .route("/api/v1/batch", post(batch_ingest))
+        .route("/v1/traces", post(otlp_traces_ingest))
         .route("/api/replay/config", post(generate_replay_config))
         .route("/api/hitl/pending", get(get_pending_approvals))
         .route("/api/hitl/resolve", post(resolve_approval))
@@ -223,6 +224,49 @@ async fn batch_ingest(
     }
 
     Ok(StatusCode::ACCEPTED)
+}
+
+/// OTLP/HTTP JSON trace ingestion at `/v1/traces`. Decodes the export request
+/// via `trace-weft-ingest`, then — exactly like [`batch_ingest`] — stamps the
+/// authenticated project onto every span before persisting so a client cannot
+/// assert another tenant's `project_id`. Returns an empty OTLP
+/// `ExportTraceServiceResponse` (`{}`) on success, `400` for a malformed body.
+async fn otlp_traces_ingest(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    body: axum::body::Bytes,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let auth = authorize(&state, &headers)?;
+    let project_id = auth.project().map(|p| p.to_string());
+
+    let mut spans = trace_weft_ingest::records_from_otlp_json(&body).map_err(|e| {
+        tracing::warn!("rejecting malformed OTLP payload: {e}");
+        StatusCode::BAD_REQUEST
+    })?;
+    for span in &mut spans {
+        span.project_id = project_id.clone();
+    }
+
+    tracing::info!(
+        "Received OTLP export of {} spans for project {:?}",
+        spans.len(),
+        project_id
+    );
+
+    for span in &spans {
+        if let Err(e) = state.trace_store.record_span(span.clone()).await {
+            tracing::error!("Failed to record OTLP span: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    }
+
+    if let Some(ch) = &state.clickhouse
+        && let Err(e) = ch.ingest_batch(&spans).await
+    {
+        tracing::warn!("Failed to stream OTLP spans to ClickHouse: {}", e);
+    }
+
+    Ok(Json(serde_json::json!({})))
 }
 
 /// Log a database error and surface it as a 500. Used by every query handler so

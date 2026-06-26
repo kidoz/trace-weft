@@ -331,6 +331,79 @@ async fn batch_ingest_persists_spans() {
     assert_eq!(detail.as_array().unwrap().len(), 3);
 }
 
+/// A minimal OTLP/HTTP JSON export with a single root span.
+fn otlp_payload() -> &'static str {
+    r#"{
+        "resourceSpans": [{
+            "scopeSpans": [{
+                "spans": [{
+                    "traceId": "0123456789abcdef0011223344556677",
+                    "spanId": "8899aabbccddeeff",
+                    "name": "otlp-root",
+                    "startTimeUnixNano": "1715000000000000000",
+                    "endTimeUnixNano": "1715000005000000000"
+                }]
+            }]
+        }]
+    }"#
+}
+
+async fn post_otlp(app: &Router, body: &str, key: Option<&str>) -> StatusCode {
+    let mut builder = Request::builder()
+        .method("POST")
+        .uri("/v1/traces")
+        .header("Content-Type", "application/json");
+    if let Some(key) = key {
+        builder = builder.header("Authorization", format!("Bearer {key}"));
+    }
+    app.clone()
+        .oneshot(builder.body(Body::from(body.to_string())).unwrap())
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn otlp_ingest_persists_and_scopes_spans() {
+    let dir = TempDir::new().unwrap();
+    let auth = AuthConfig::new(
+        vec![
+            ("tw-alpha".to_string(), "proj_a".to_string()),
+            ("tw-beta".to_string(), "proj_b".to_string()),
+        ],
+        false,
+    );
+    let (app, _recorder) = test_app_with_auth(dir.path(), auth).await;
+
+    // Unauthenticated OTLP ingest is rejected, and a malformed body is a 400.
+    assert_eq!(
+        post_otlp(&app, otlp_payload(), None).await,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        post_otlp(&app, "not json", Some("tw-alpha")).await,
+        StatusCode::BAD_REQUEST
+    );
+
+    // Alpha ingests an OTLP export; the server stamps proj_a onto the spans.
+    assert_eq!(
+        post_otlp(&app, otlp_payload(), Some("tw-alpha")).await,
+        StatusCode::OK
+    );
+
+    // Alpha sees the ingested trace; beta (a different project) does not.
+    let (status, traces) = get_json_auth(&app, "/api/traces", Some("tw-alpha")).await;
+    assert_eq!(status, StatusCode::OK);
+    let traces = traces.as_array().unwrap();
+    assert_eq!(traces.len(), 1);
+    assert_eq!(traces[0]["root_name"], serde_json::json!("otlp-root"));
+    assert_eq!(traces[0]["span_count"], serde_json::json!(1));
+
+    let (status, beta_traces) = get_json_auth(&app, "/api/traces", Some("tw-beta")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(beta_traces.as_array().unwrap().len(), 0);
+}
+
 #[tokio::test]
 async fn openapi_diff_and_replay_endpoints_are_served() {
     let dir = TempDir::new().unwrap();

@@ -293,11 +293,11 @@ environment variables:
   defaults this **on** when no keys are configured; production `start_server`
   use defaults it **off**, rejecting unauthenticated requests with `401`.
 
-The `trace-weft-ingest` crate decodes OTLP/HTTP JSON payloads with the
-`opentelemetry-proto` types, preserving original trace/span/parent IDs and
-returning `400` for malformed bodies. It is currently a library only — the dev
-server does **not** yet mount a `/v1/traces` route, so spans are ingested via
-`POST /api/v1/batch`.
+OTLP/HTTP JSON ingestion is served at `POST /v1/traces`: payloads are decoded by
+the `trace-weft-ingest` crate (`opentelemetry-proto` types, preserving original
+trace/span/parent IDs, `400` for malformed bodies), then — like `/api/v1/batch`
+— the authenticated project is stamped onto every span before it is persisted.
+A `400` is returned for malformed bodies.
 
 ## Development Checks
 

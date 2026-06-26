@@ -44,27 +44,42 @@ async fn handle_otlp_json_traces(
     State(state): State<IngestState>,
     body: Bytes,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let request: ExportTraceServiceRequest = serde_json::from_slice(&body).map_err(|e| {
+    let records = records_from_otlp_json(&body).map_err(|e| {
         tracing::warn!("rejecting malformed OTLP payload: {e}");
         StatusCode::BAD_REQUEST
     })?;
 
-    // One run groups every span in this export request.
-    let run_id = RunId::new();
-
-    for resource_spans in &request.resource_spans {
-        for scope_spans in &resource_spans.scope_spans {
-            for span in &scope_spans.spans {
-                let record = span_to_record(span, run_id);
-                if let Err(e) = state.store.record_span(record).await {
-                    tracing::error!("failed to record ingested span: {e}");
-                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                }
-            }
+    for record in records {
+        if let Err(e) = state.store.record_span(record).await {
+            tracing::error!("failed to record ingested span: {e}");
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
 
     Ok(Json(ExportTraceServiceResponse::default()))
+}
+
+/// Decode an OTLP/HTTP JSON `ExportTraceServiceRequest` body into TraceWeft
+/// [`SpanRecord`]s, preserving original trace/span/parent IDs. `project_id` is
+/// left `None` for the caller to stamp from its auth context. A malformed body
+/// returns the serde error (callers map this to `400`).
+///
+/// The server mounts `/v1/traces` through this so it can authorize and stamp the
+/// tenant before persisting; [`ingest_router`] uses the same decoding for an
+/// unauthenticated, store-only ingest.
+pub fn records_from_otlp_json(body: &[u8]) -> Result<Vec<SpanRecord>, serde_json::Error> {
+    let request: ExportTraceServiceRequest = serde_json::from_slice(body)?;
+    // One run groups every span in this export request.
+    let run_id = RunId::new();
+    let mut records = Vec::new();
+    for resource_spans in &request.resource_spans {
+        for scope_spans in &resource_spans.scope_spans {
+            for span in &scope_spans.spans {
+                records.push(span_to_record(span, run_id));
+            }
+        }
+    }
+    Ok(records)
 }
 
 /// Convert a 16-byte OTLP trace id into a [`TraceId`]. Returns `None` for the
