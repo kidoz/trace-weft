@@ -15,13 +15,15 @@ import type { Span } from './TraceDetail';
 import { SpanKindBadge } from './IconSystem';
 import { spanKindColor } from './spanColors';
 
-const dagreGraph = new dagre.graphlib.Graph();
-dagreGraph.setDefaultEdgeLabel(() => ({}));
-
 const nodeWidth = 210;
 const nodeHeight = 84;
 
 const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => {
+  // Build a fresh graph per layout. A module-level singleton would accumulate
+  // every previously-viewed trace's nodes/edges and skew the layout of the
+  // current trace (positions drift the longer the session runs).
+  const dagreGraph = new dagre.graphlib.Graph();
+  dagreGraph.setDefaultEdgeLabel(() => ({}));
   dagreGraph.setGraph({ rankdir: direction, ranksep: 70, nodesep: 36 });
 
   nodes.forEach((node) => {
