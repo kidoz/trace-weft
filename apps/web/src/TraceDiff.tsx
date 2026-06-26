@@ -1,62 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowLeft, GitCompareArrows } from 'lucide-react';
-import type { Span } from './TraceDetail';
+import { api, queryKeys, type Span } from './api';
 import { SpanKindBadge, StatusBadge } from './IconSystem';
-import { apiUrl } from './api';
-
-type DiffRow = {
-  key: string;
-  a: Span | null;
-  b: Span | null;
-};
-
-// Align spans across the two traces by name+kind, falling back to positional
-// index for unmatched spans. Intentionally simple and never throws on missing
-// data: a span present only in A leaves `b` null (and vice versa).
-function alignSpans(spansA: Span[], spansB: Span[]): DiffRow[] {
-  const safeA = Array.isArray(spansA) ? spansA : [];
-  const safeB = Array.isArray(spansB) ? spansB : [];
-
-  const matchKey = (s: Span) => `${s.span_kind}::${s.name}`;
-  const usedB = new Set<number>();
-  const rows: DiffRow[] = [];
-
-  // Build an index of B spans by match key (first-come wins per key).
-  const bByKey = new Map<string, number[]>();
-  safeB.forEach((s, i) => {
-    const k = matchKey(s);
-    const list = bByKey.get(k);
-    if (list) list.push(i);
-    else bByKey.set(k, [i]);
-  });
-
-  safeA.forEach((spanA, i) => {
-    const k = matchKey(spanA);
-    const candidates = bByKey.get(k);
-    let matchIdx = -1;
-    if (candidates) {
-      const next = candidates.find((idx) => !usedB.has(idx));
-      if (next !== undefined) matchIdx = next;
-    }
-    // Fall back to the same positional index if it's still free.
-    if (matchIdx === -1 && i < safeB.length && !usedB.has(i) && matchKey(safeB[i]) === k) {
-      matchIdx = i;
-    }
-    if (matchIdx !== -1) {
-      usedB.add(matchIdx);
-      rows.push({ key: `pair-${i}-${matchIdx}`, a: spanA, b: safeB[matchIdx] });
-    } else {
-      rows.push({ key: `a-${i}`, a: spanA, b: null });
-    }
-  });
-
-  // Any B spans never matched are additions.
-  safeB.forEach((spanB, i) => {
-    if (!usedB.has(i)) rows.push({ key: `b-${i}`, a: null, b: spanB });
-  });
-
-  return rows;
-}
 
 function shortId(id: string): string {
   return id ? id.slice(0, 8) : '—';
@@ -89,15 +36,20 @@ function SpanCard({
   other,
   side,
   added = false,
+  changedFields = [],
 }: {
   span: Span;
   other: Span | null;
   side: 'a' | 'b';
   added?: boolean;
+  changedFields?: string[];
 }) {
-  const latencyChanged = fieldChanged(span, other, (s) => s.latency_ms);
-  const statusChanged = fieldChanged(span, other, (s) => s.status);
-  const attrsChanged = fieldChanged(span, other, (s) => s.attributes);
+  const latencyChanged =
+    changedFields.includes('latency_ms') || fieldChanged(span, other, (s) => s.latency_ms);
+  const statusChanged =
+    changedFields.includes('status') || fieldChanged(span, other, (s) => s.status);
+  const attrsChanged =
+    changedFields.includes('attributes') || fieldChanged(span, other, (s) => s.attributes);
 
   const border = added ? 'border-ok' : 'border-line-inner';
 
@@ -150,45 +102,25 @@ export function TraceDiff({
   traceB: string;
   onBack: () => void;
 }) {
-  const [spansA, setSpansA] = useState<Span[]>([]);
-  const [spansB, setSpansB] = useState<Span[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.traceDiff(traceA, traceB),
+    queryFn: () => api.getTraceDiff(traceA, traceB),
+  });
+  const rows = data?.rows ?? [];
+  const virtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 148,
+    overscan: 8,
+  });
+  const summary = data?.summary;
+  const changedCount = summary?.changed ?? 0;
+  const addedCount = summary?.added ?? 0;
+  const removedCount = summary?.removed ?? 0;
 
-  useEffect(() => {
-    const fetchTrace = (id: string) =>
-      fetch(apiUrl(`/api/traces/${id}`)).then((res) => {
-        if (!res.ok) throw new Error(`trace ${id.slice(0, 8)} request failed: ${res.status}`);
-        return res.json();
-      });
-
-    Promise.all([fetchTrace(traceA), fetchTrace(traceB)])
-      .then(([dataA, dataB]) => {
-        setSpansA(Array.isArray(dataA) ? dataA : []);
-        setSpansB(Array.isArray(dataB) ? dataB : []);
-        setError(null);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to fetch traces for diff', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch traces for diff');
-        setLoading(false);
-      });
-  }, [traceA, traceB]);
-
-  if (loading) return <div className="p-6 text-ink-dim">Loading diff...</div>;
-  if (error) return <div className="p-6 text-error">{error}</div>;
-
-  const rows = alignSpans(spansA, spansB);
-  const changedCount = rows.filter(
-    (r) =>
-      r.a &&
-      r.b &&
-      (fieldChanged(r.a, r.b, (s) => s.latency_ms) ||
-        fieldChanged(r.a, r.b, (s) => s.status) ||
-        fieldChanged(r.a, r.b, (s) => s.attributes)),
-  ).length;
-  const addedCount = rows.filter((r) => !r.a && r.b).length;
+  if (isLoading) return <div className="p-6 text-ink-dim">Loading diff...</div>;
+  if (error) return <div className="p-6 text-error">{error.message}</div>;
 
   return (
     <div className="flex h-screen max-w-7xl flex-col mx-auto p-6">
@@ -215,36 +147,63 @@ export function TraceDiff({
         </span>
 
         <span className="ml-auto font-mono text-[12px] text-warn">
-          {changedCount} changed · {addedCount} added
+          {changedCount} changed · {addedCount} added · {removedCount} removed
         </span>
       </div>
 
-      <div className="flex flex-1 overflow-hidden rounded-panel border border-line">
-        {/* Original (A) */}
-        <div className="flex-1 overflow-y-auto bg-surface p-4">
-          <div className="label-section mb-4">Original run {shortId(traceA)}</div>
-          <div className="space-y-2">
-            {rows.map((row) =>
-              row.a ? (
-                <SpanCard key={`${row.key}-a`} span={row.a} other={row.b} side="a" />
-              ) : (
-                <EmptyPlaceholder key={`${row.key}-a`} />
-              ),
-            )}
+      <div ref={parentRef} className="flex flex-1 overflow-auto rounded-panel border border-line">
+        <div className="relative flex w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+          {/* Original (A) */}
+          <div className="w-1/2 bg-surface p-4">
+            <div className="label-section mb-4">Original run {shortId(traceA)}</div>
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              return (
+                <div
+                  key={`${row.key}-a`}
+                  className="absolute left-4 right-[calc(50%+8px)]"
+                  style={{ transform: `translateY(${virtualRow.start + 34}px)` }}
+                >
+                  {row.a ? (
+                    <SpanCard
+                      span={row.a}
+                      other={row.b}
+                      side="a"
+                      changedFields={row.changed_fields}
+                    />
+                  ) : (
+                    <EmptyPlaceholder />
+                  )}
+                </div>
+              );
+            })}
           </div>
-        </div>
 
-        {/* Replayed (B) */}
-        <div className="flex-1 overflow-y-auto border-l border-line-inner bg-surface p-4">
-          <div className="label-section mb-4">Replayed run {shortId(traceB)}</div>
-          <div className="space-y-2">
-            {rows.map((row) =>
-              row.b ? (
-                <SpanCard key={`${row.key}-b`} span={row.b} other={row.a} side="b" added={!row.a} />
-              ) : (
-                <EmptyPlaceholder key={`${row.key}-b`} />
-              ),
-            )}
+          {/* Replayed (B) */}
+          <div className="w-1/2 border-l border-line-inner bg-surface p-4">
+            <div className="label-section mb-4">Replayed run {shortId(traceB)}</div>
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              return (
+                <div
+                  key={`${row.key}-b`}
+                  className="absolute left-[calc(50%+8px)] right-4"
+                  style={{ transform: `translateY(${virtualRow.start + 34}px)` }}
+                >
+                  {row.b ? (
+                    <SpanCard
+                      span={row.b}
+                      other={row.a}
+                      side="b"
+                      added={!row.a}
+                      changedFields={row.changed_fields}
+                    />
+                  ) : (
+                    <EmptyPlaceholder />
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

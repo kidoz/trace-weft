@@ -1,4 +1,4 @@
-import type { Span } from './TraceDetail';
+import type { Span } from './api';
 
 export function MemoryDiff({ span, spans }: { span: Span; spans: Span[] }) {
   if (!span.memory_state) return null;

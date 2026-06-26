@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowLeft, Braces, Clock3, Download, FileText, Network, Play, Rows3 } from 'lucide-react';
 import { ReplayLab } from './ReplayLab';
 import { TraceGraph } from './TraceGraph';
@@ -7,77 +9,12 @@ import { MemoryDiff } from './MemoryDiff';
 import { JsonView } from './JsonView';
 import { SpanKindBadge, StatusBadge } from './IconSystem';
 import { spanKindColor } from './spanColors';
-import { apiUrl } from './api';
+import { api, apiUrl, queryKeys, type BlobRef, type Span, type TraceEvent } from './api';
 
 type ViewMode = 'waterfall' | 'graph' | 'transcript' | 'content';
 
-interface BlobRef {
-  hash: string;
-  content_type: string;
-  size_bytes: number;
-  created_at_timestamp: number;
-  redaction_status: string;
-  encryption_status: string;
-  storage_backend: string;
-  preview_text_redacted?: string | null;
-}
-
-export interface Span {
-  trace_id: string;
-  span_id: string;
-  parent_span_id: string | null;
-  run_id: string;
-  session_id?: string | null;
-  user_id_hash?: string | null;
-  project_id?: string | null;
-  span_kind: string;
-  name: string;
-  start_time: number;
-  end_time: number | null;
-  status: string;
-  status_message?: string | null;
-  error_type?: string | null;
-  error_message_redacted?: string | null;
-  attributes: Record<string, unknown>;
-  otel_attributes?: Record<string, unknown>;
-  openinference_attributes?: Record<string, unknown>;
-  latency_ms: number | null;
-  input_ref: BlobRef | null;
-  output_ref: BlobRef | null;
-  retrieved_document_refs?: BlobRef[];
-  prompt_template_id?: string | null;
-  prompt_version?: string | null;
-  model_provider?: string | null;
-  model_name?: string | null;
-  tool_name?: string | null;
-  tool_schema_hash?: string | null;
-  retrieval_query_hash?: string | null;
-  cost_estimate?: { amount: number; currency: string } | null;
-  token_usage?: {
-    input: number;
-    output: number;
-    reasoning: number | null;
-    breakdown: Record<string, number>;
-  } | null;
-  memory_state?: Record<string, unknown> | null;
-  retry_count?: number | null;
-  cache_hit?: boolean | null;
-  redaction_policy?: string | null;
-  schema_version?: string | null;
-}
-
-interface TraceEvent {
-  event_id: string;
-  trace_id: string;
-  run_id: string;
-  parent_span_id: string | null;
-  seq: number;
-  event_kind: string;
-  name: string;
-  timestamp: number;
-  attributes: Record<string, unknown>;
-  schema_version: string;
-}
+const EMPTY_SPANS: Span[] = [];
+const EMPTY_EVENTS: TraceEvent[] = [];
 
 function isPending(status: string): boolean {
   const s = status.toLowerCase();
@@ -116,52 +53,32 @@ function spanBlobRefs(span: Span | null): Array<{ label: string; ref: BlobRef }>
 }
 
 export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () => void }) {
-  const [spans, setSpans] = useState<Span[]>([]);
-  const [events, setEvents] = useState<TraceEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedSpanForReplay, setSelectedSpanForReplay] = useState<Span | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('waterfall');
   const [selectedSpan, setSelectedSpan] = useState<Span | null>(null);
+  const waterfallRef = useRef<HTMLDivElement | null>(null);
+
+  const spansQuery = useQuery({
+    queryKey: queryKeys.trace(traceId),
+    queryFn: () => api.getTrace(traceId),
+  });
+  const eventsQuery = useQuery({
+    queryKey: queryKeys.traceEvents(traceId),
+    queryFn: () => api.getTraceEvents(traceId),
+  });
+
+  const spans = spansQuery.data ?? EMPTY_SPANS;
+  const events = eventsQuery.data ?? EMPTY_EVENTS;
 
   useEffect(() => {
-    let cancelled = false;
-
-    const loadTrace = async () => {
-      setLoading(true);
-      setLoadError(null);
-
-      try {
-        const [spanData, eventData] = await Promise.all([
-          fetch(apiUrl(`/api/traces/${traceId}`)).then((res) => {
-            if (!res.ok) throw new Error(`trace request failed: ${res.status}`);
-            return res.json() as Promise<Span[]>;
-          }),
-          fetch(apiUrl(`/api/traces/${traceId}/events`)).then((res) => {
-            if (!res.ok) throw new Error(`events request failed: ${res.status}`);
-            return res.json() as Promise<TraceEvent[]>;
-          }),
-        ]);
-
-        if (cancelled) return;
-        const nextSpans = Array.isArray(spanData) ? spanData : [];
-        setSpans(nextSpans);
-        setEvents(Array.isArray(eventData) ? eventData : []);
-        setSelectedSpan(nextSpans[0] ?? null);
-        setLoading(false);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        console.error('Failed to fetch trace', err);
-        setLoadError(err instanceof Error ? err.message : 'Failed to fetch trace');
-        setLoading(false);
-      }
-    };
-
-    void loadTrace();
-    return () => {
-      cancelled = true;
-    };
-  }, [traceId]);
+    if (spans.length === 0) {
+      setSelectedSpan(null);
+      return;
+    }
+    if (!selectedSpan || !spans.some((span) => span.span_id === selectedSpan.span_id)) {
+      setSelectedSpan(spans[0] ?? null);
+    }
+  }, [selectedSpan, spans]);
 
   const { byId, window } = useMemo(() => {
     const map = new Map<string, Span>();
@@ -176,8 +93,18 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
     return { byId: map, window: { min, total: span } };
   }, [spans]);
 
-  if (loading) return <div className="p-8 text-ink-dim">Loading spans…</div>;
-  if (loadError) return <div className="p-8 text-error">{loadError}</div>;
+  const waterfallVirtualizer = useVirtualizer({
+    count: spans.length,
+    getScrollElement: () => waterfallRef.current,
+    estimateSize: () => 68,
+    overscan: 10,
+  });
+
+  if (spansQuery.isLoading || eventsQuery.isLoading) {
+    return <div className="p-8 text-ink-dim">Loading spans...</div>;
+  }
+  const loadError = spansQuery.error ?? eventsQuery.error;
+  if (loadError) return <div className="p-8 text-error">{loadError.message}</div>;
 
   if (selectedSpanForReplay) {
     return <ReplayLab span={selectedSpanForReplay} onBack={() => setSelectedSpanForReplay(null)} />;
@@ -236,7 +163,7 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
         {/* Left pane */}
         <div className="relative flex min-w-0 flex-1 flex-col border-r border-line-inner">
           {viewMode === 'waterfall' ? (
-            <div className="flex-1 overflow-y-auto bg-surface p-4">
+            <div ref={waterfallRef} className="flex-1 overflow-y-auto bg-surface p-4">
               <div className="mb-3 flex items-center justify-between">
                 <div className="label-section">Waterfall</div>
                 <div className="font-mono text-[11px] text-ink-dim">
@@ -259,8 +186,12 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
                 </div>
                 <div />
               </div>
-              <div className="flex flex-col gap-2">
-                {spans.map((span) => {
+              <div
+                className="relative"
+                style={{ height: `${waterfallVirtualizer.getTotalSize()}px` }}
+              >
+                {waterfallVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const span = spans[virtualRow.index];
                   const selected = selectedSpan?.span_id === span.span_id;
                   const pending = isPending(span.status);
                   const isRoot = !span.parent_span_id;
@@ -274,7 +205,7 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
                     <div
                       key={span.span_id}
                       onClick={() => setSelectedSpan(span)}
-                      className="grid cursor-pointer grid-cols-[210px_1fr_80px] items-center gap-3 rounded-panel border p-3 transition-colors"
+                      className="absolute left-0 top-0 grid w-full cursor-pointer grid-cols-[210px_1fr_80px] items-center gap-3 rounded-panel border p-3 transition-colors"
                       style={{
                         backgroundColor: selected ? 'rgba(124,131,255,0.08)' : '#13161b',
                         borderColor: selected
@@ -283,6 +214,8 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
                             ? 'rgba(251,191,36,0.5)'
                             : '#20242c',
                         borderStyle: pending ? 'dashed' : 'solid',
+                        height: `${virtualRow.size - 8}px`,
+                        transform: `translateY(${virtualRow.start}px)`,
                       }}
                     >
                       <div
@@ -519,6 +452,7 @@ function TranscriptView({
   spans: Span[];
   onSelectSpan: (span: Span) => void;
 }) {
+  const parentRef = useRef<HTMLDivElement | null>(null);
   const spanById = useMemo(() => new Map(spans.map((span) => [span.span_id, span])), [spans]);
   const items = useMemo(() => {
     const spanItems = spans.map((span) => ({
@@ -537,9 +471,15 @@ function TranscriptView({
     }));
     return [...spanItems, ...eventItems].sort((a, b) => a.time - b.time);
   }, [events, spanById, spans]);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 82,
+    overscan: 12,
+  });
 
   return (
-    <div className="flex-1 overflow-y-auto bg-surface p-4">
+    <div ref={parentRef} className="flex-1 overflow-y-auto bg-surface p-4">
       <div className="mb-3 flex items-center justify-between">
         <div className="label-section">Transcript</div>
         <span className="font-mono text-[11px] text-ink-dim">
@@ -552,13 +492,18 @@ function TranscriptView({
           No transcript items recorded.
         </div>
       ) : (
-        <div className="space-y-2">
-          {items.map((item) =>
-            item.kind === 'span' ? (
+        <div className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const item = items[virtualRow.index];
+            return item.kind === 'span' ? (
               <button
                 key={item.id}
                 onClick={() => onSelectSpan(item.span)}
-                className="grid w-full grid-cols-[130px_1fr_90px] items-start gap-3 rounded-panel border border-line-inner bg-panel p-3 text-left transition-colors hover:border-[rgba(124,131,255,0.45)]"
+                className="absolute left-0 top-0 grid w-full grid-cols-[130px_1fr_90px] items-start gap-3 rounded-panel border border-line-inner bg-panel p-3 text-left transition-colors hover:border-[rgba(124,131,255,0.45)]"
+                style={{
+                  minHeight: `${virtualRow.size - 8}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
               >
                 <div className="font-mono text-[11px] text-ink-dim">
                   {new Date(item.time).toLocaleTimeString()}
@@ -579,7 +524,11 @@ function TranscriptView({
             ) : (
               <div
                 key={item.id}
-                className="grid grid-cols-[130px_1fr] items-start gap-3 rounded-panel border border-line-inner bg-panel-2 p-3"
+                className="absolute left-0 top-0 grid w-full grid-cols-[130px_1fr] items-start gap-3 rounded-panel border border-line-inner bg-panel-2 p-3"
+                style={{
+                  minHeight: `${virtualRow.size - 8}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
               >
                 <div className="font-mono text-[11px] text-ink-dim">
                   {new Date(item.time).toLocaleTimeString()}
@@ -604,8 +553,8 @@ function TranscriptView({
                   )}
                 </div>
               </div>
-            ),
-          )}
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { ArrowLeft, Download, Play } from 'lucide-react';
-import type { Span } from './TraceDetail';
+import { api, queryKeys, type Span } from './api';
 import { SpanKindBadge } from './IconSystem';
 
 export function ReplayLab({ span, onBack }: { span: Span; onBack: () => void }) {
@@ -13,24 +14,31 @@ export function ReplayLab({ span, onBack }: { span: Span; onBack: () => void }) 
   });
 
   const [error, setError] = useState<string | null>(null);
+  const replayPlan = useQuery({
+    queryKey: queryKeys.replayPlan(span.trace_id, span.span_id),
+    queryFn: () => api.getReplayPlan(span.trace_id, span.span_id),
+  });
+  const generateMutation = useMutation({
+    mutationFn: api.generateReplayConfig,
+  });
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     try {
       // Validate JSON
       const parsedValue = JSON.parse(mockContent);
-
-      const config = {
-        mocked_spans: {
-          [span.name]: parsedValue,
-        },
+      const response = await generateMutation.mutateAsync({
+        span_id: span.span_id,
+        span_name: span.name,
+        mocked_output: parsedValue,
         block_side_effects: true,
-      };
+      });
 
       const dataStr =
-        'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(config, null, 2));
+        'data:text/json;charset=utf-8,' +
+        encodeURIComponent(JSON.stringify(response.config, null, 2));
       const dlAnchorElem = document.createElement('a');
       dlAnchorElem.setAttribute('href', dataStr);
-      dlAnchorElem.setAttribute('download', `replay_config_${span.name}.json`);
+      dlAnchorElem.setAttribute('download', response.file_name);
       dlAnchorElem.click();
       setError(null);
     } catch (e: unknown) {
@@ -65,6 +73,9 @@ export function ReplayLab({ span, onBack }: { span: Span; onBack: () => void }) 
             <span>{span.name}</span>
             <SpanKindBadge kind={span.span_kind} />
           </div>
+          {replayPlan.data && (
+            <div className="mt-2 font-mono text-xs text-ink-dim">{replayPlan.data.command}</div>
+          )}
         </div>
 
         <div className="mb-6">
@@ -88,17 +99,19 @@ export function ReplayLab({ span, onBack }: { span: Span; onBack: () => void }) 
               <li>
                 Run your agent with: <br />
                 <code className="rounded-chip bg-code px-1 py-0.5 font-mono text-xs text-flow">
-                  TRACE_WEFT_REPLAY_FILE=replay_config_{span.name}.json cargo run
+                  {replayPlan.data?.command ??
+                    `TRACE_WEFT_REPLAY_FILE=replay_config_${span.name}.json cargo run`}
                 </code>
               </li>
             </ol>
           </div>
           <button
-            onClick={handleDownload}
+            onClick={() => void handleDownload()}
+            disabled={generateMutation.isPending}
             className="inline-flex items-center gap-2 rounded-pill bg-iris px-6 py-3 font-semibold text-window shadow-iris transition-[filter] hover:brightness-110"
           >
             <Download className="h-4 w-4" aria-hidden="true" />
-            Download Config
+            {generateMutation.isPending ? 'Generating' : 'Download Config'}
           </button>
         </div>
       </div>

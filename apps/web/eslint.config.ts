@@ -44,6 +44,8 @@ export default defineConfig([
       '@typescript-eslint/use-unknown-in-catch-callback-variable': 'off',
       '@typescript-eslint/no-redundant-type-constituents': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
+      'react-hooks/incompatible-library': 'off',
+      'react-hooks/set-state-in-effect': 'off',
     },
   },
   prettierConfig,

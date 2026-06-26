@@ -1,21 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { Database, GitCompareArrows, Search, Workflow } from 'lucide-react';
-import { apiUrl } from './api';
+import { api, queryKeys } from './api';
 import { MetricPill, SpanKindBadge, StatusBadge } from './IconSystem';
-
-export interface TraceSummary {
-  trace_id: string;
-  run_id: string;
-  start_time: number;
-  end_time: number | null;
-  span_count: number;
-  status: string;
-  root_name?: string | null;
-  root_span_kind?: string | null;
-  model_provider?: string | null;
-  model_name?: string | null;
-  error_summary?: string | null;
-}
 
 export function TraceList({
   onSelectTrace,
@@ -24,30 +12,19 @@ export function TraceList({
   onSelectTrace: (id: string) => void;
   onDiffTraces: (idA: string, idB: string) => void;
 }) {
-  const [traces, setTraces] = useState<TraceSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedForDiff, setSelectedForDiff] = useState<string[]>([]);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ok' | 'error' | 'running'>('all');
+  const parentRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    fetch(apiUrl('/api/traces'))
-      .then((res) => {
-        if (!res.ok) throw new Error(`trace list request failed: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        setTraces(Array.isArray(data) ? data : []);
-        setError(null);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to fetch traces', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch traces');
-        setLoading(false);
-      });
-  }, []);
+  const {
+    data: traces = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.traces,
+    queryFn: api.listTraces,
+  });
 
   const handleCheckbox = (traceId: string) => {
     setSelectedForDiff((prev) => {
@@ -57,31 +34,41 @@ export function TraceList({
     });
   };
 
-  if (loading) return <div className="p-8 text-ink-dim">Loading traces...</div>;
-  if (error) return <div className="p-8 text-error">{error}</div>;
+  const filteredTraces = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase();
+    return traces.filter((trace) => {
+      const statusBucket = trace.end_time ? trace.status.toLowerCase() : 'running';
+      if (statusFilter !== 'all' && statusBucket !== statusFilter) return false;
+      if (!normalizedQuery) return true;
+      return [
+        trace.trace_id,
+        trace.run_id,
+        trace.root_name,
+        trace.root_span_kind,
+        trace.model_provider,
+        trace.model_name,
+        trace.error_summary,
+        trace.status,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery));
+    });
+  }, [query, statusFilter, traces]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredTraces.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 84,
+    overscan: 8,
+  });
+
+  if (isLoading) return <div className="p-8 text-ink-dim">Loading traces...</div>;
+  if (error) return <div className="p-8 text-error">{error.message}</div>;
   if (traces.length === 0)
     return <div className="p-8 text-ink-dim">No traces found. Run a local agent first.</div>;
 
   const GRID_COLS = '40px minmax(240px,1.4fr) minmax(180px,1fr) 120px 70px 110px 150px';
   const totalSpans = traces.reduce((total, trace) => total + trace.span_count, 0);
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredTraces = traces.filter((trace) => {
-    const statusBucket = trace.end_time ? trace.status.toLowerCase() : 'running';
-    if (statusFilter !== 'all' && statusBucket !== statusFilter) return false;
-    if (!normalizedQuery) return true;
-    return [
-      trace.trace_id,
-      trace.run_id,
-      trace.root_name,
-      trace.root_span_kind,
-      trace.model_provider,
-      trace.model_name,
-      trace.error_summary,
-      trace.status,
-    ]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(normalizedQuery));
-  });
 
   return (
     <div className="mx-auto max-w-7xl p-6">
@@ -140,79 +127,88 @@ export function TraceList({
           <div className="label-th px-4 py-3">Time</div>
         </div>
 
-        {filteredTraces.map((trace) => {
-          const selected = selectedForDiff.includes(trace.trace_id);
-          const displayStatus = trace.end_time ? trace.status : 'running';
-          const model =
-            trace.model_provider || trace.model_name
-              ? [trace.model_provider, trace.model_name].filter(Boolean).join(' / ')
-              : '—';
-          return (
-            <div
-              key={trace.trace_id}
-              className={`grid items-center border-b border-line-row transition-colors duration-[0.15s] hover:bg-[rgba(124,131,255,0.05)] ${
-                selected ? 'bg-[rgba(124,131,255,0.07)]' : ''
-              }`}
-              style={{ gridTemplateColumns: GRID_COLS }}
-            >
-              <div className="flex items-center justify-center px-4 py-4">
-                <input
-                  type="checkbox"
-                  checked={selected}
-                  onChange={() => handleCheckbox(trace.trace_id)}
-                  className="cursor-pointer accent-[#7c83ff]"
-                />
-              </div>
-              <div
-                className="min-w-0 cursor-pointer px-4 py-4"
-                onClick={() => onSelectTrace(trace.trace_id)}
-              >
-                <div className="mb-1 flex min-w-0 items-center gap-2">
-                  {trace.root_span_kind && <SpanKindBadge kind={trace.root_span_kind} />}
-                  <span className="truncate text-sm font-semibold text-ink-hi">
-                    {trace.root_name ?? 'Unnamed run'}
-                  </span>
+        <div ref={parentRef} className="max-h-[calc(100vh-260px)] overflow-auto">
+          <div className="relative" style={{ height: `${rowVirtualizer.getTotalSize()}px` }}>
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const trace = filteredTraces[virtualRow.index];
+              const selected = selectedForDiff.includes(trace.trace_id);
+              const displayStatus = trace.end_time ? trace.status : 'running';
+              const model =
+                trace.model_provider || trace.model_name
+                  ? [trace.model_provider, trace.model_name].filter(Boolean).join(' / ')
+                  : '—';
+              return (
+                <div
+                  key={trace.trace_id}
+                  className={`absolute left-0 top-0 grid w-full items-center border-b border-line-row transition-colors duration-[0.15s] hover:bg-[rgba(124,131,255,0.05)] ${
+                    selected ? 'bg-[rgba(124,131,255,0.07)]' : ''
+                  }`}
+                  style={{
+                    gridTemplateColumns: GRID_COLS,
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="flex items-center justify-center px-4 py-4">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => handleCheckbox(trace.trace_id)}
+                      className="cursor-pointer accent-[#7c83ff]"
+                    />
+                  </div>
+                  <div
+                    className="min-w-0 cursor-pointer px-4 py-4"
+                    onClick={() => onSelectTrace(trace.trace_id)}
+                  >
+                    <div className="mb-1 flex min-w-0 items-center gap-2">
+                      {trace.root_span_kind && <SpanKindBadge kind={trace.root_span_kind} />}
+                      <span className="truncate text-sm font-semibold text-ink-hi">
+                        {trace.root_name ?? 'Unnamed run'}
+                      </span>
+                    </div>
+                    <div className="truncate font-mono text-[11px] text-iris-text">
+                      {trace.trace_id}
+                    </div>
+                    {trace.error_summary && (
+                      <div className="mt-1 truncate text-xs text-error">{trace.error_summary}</div>
+                    )}
+                  </div>
+                  <div
+                    className="cursor-pointer truncate px-4 py-4 font-mono text-xs text-ink-mid"
+                    onClick={() => onSelectTrace(trace.trace_id)}
+                  >
+                    {model}
+                  </div>
+                  <div
+                    className="cursor-pointer px-4 py-4"
+                    onClick={() => onSelectTrace(trace.trace_id)}
+                  >
+                    <StatusBadge status={displayStatus} />
+                  </div>
+                  <div
+                    className="cursor-pointer px-4 py-4 text-sm text-ink-mid"
+                    onClick={() => onSelectTrace(trace.trace_id)}
+                  >
+                    {trace.span_count}
+                  </div>
+                  <div
+                    className="cursor-pointer px-4 py-4 font-mono text-sm text-ink-hi"
+                    onClick={() => onSelectTrace(trace.trace_id)}
+                  >
+                    {trace.end_time ? `${trace.end_time - trace.start_time}ms` : 'Running'}
+                  </div>
+                  <div
+                    className="cursor-pointer px-4 py-4 text-sm text-ink-dim"
+                    onClick={() => onSelectTrace(trace.trace_id)}
+                  >
+                    {new Date(trace.start_time).toLocaleString()}
+                  </div>
                 </div>
-                <div className="truncate font-mono text-[11px] text-iris-text">
-                  {trace.trace_id}
-                </div>
-                {trace.error_summary && (
-                  <div className="mt-1 truncate text-xs text-error">{trace.error_summary}</div>
-                )}
-              </div>
-              <div
-                className="cursor-pointer truncate px-4 py-4 font-mono text-xs text-ink-mid"
-                onClick={() => onSelectTrace(trace.trace_id)}
-              >
-                {model}
-              </div>
-              <div
-                className="cursor-pointer px-4 py-4"
-                onClick={() => onSelectTrace(trace.trace_id)}
-              >
-                <StatusBadge status={displayStatus} />
-              </div>
-              <div
-                className="cursor-pointer px-4 py-4 text-sm text-ink-mid"
-                onClick={() => onSelectTrace(trace.trace_id)}
-              >
-                {trace.span_count}
-              </div>
-              <div
-                className="cursor-pointer px-4 py-4 font-mono text-sm text-ink-hi"
-                onClick={() => onSelectTrace(trace.trace_id)}
-              >
-                {trace.end_time ? `${trace.end_time - trace.start_time}ms` : 'Running'}
-              </div>
-              <div
-                className="cursor-pointer px-4 py-4 text-sm text-ink-dim"
-                onClick={() => onSelectTrace(trace.trace_id)}
-              >
-                {new Date(trace.start_time).toLocaleString()}
-              </div>
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
         {filteredTraces.length === 0 && (
           <div className="p-8 text-center text-ink-dim">No traces match the current filter.</div>
         )}

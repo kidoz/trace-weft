@@ -1,40 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, Pause, X } from 'lucide-react';
-import { apiUrl } from './api';
+import { api, queryKeys } from './api';
 
 export function HitlDashboard() {
-  const [pendingIds, setPendingIds] = useState<string[]>([]);
   const [selectedSpan, setSelectedSpan] = useState<string | null>(null);
   const [mockValue, setMockValue] = useState<string>('{}');
   const [rejectReason, setRejectReason] = useState<string>('Manually rejected in UI');
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const fetchPending = async () => {
-      try {
-        const res = await fetch(apiUrl('/api/hitl/pending'));
-        if (res.ok) {
-          const ids = (await res.json()) as string[];
-          setPendingIds(ids);
-          if (ids.length > 0 && !selectedSpan) {
-            setSelectedSpan(ids[0]);
-          } else if (ids.length === 0) {
-            setSelectedSpan(null);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch pending HITL approvals', err);
-      }
-    };
+  const { data: pendingIds = [] } = useQuery({
+    queryKey: queryKeys.hitlPending,
+    queryFn: api.getPendingApprovals,
+    refetchInterval: 2000,
+  });
+  const activeSpan =
+    selectedSpan && pendingIds.includes(selectedSpan) ? selectedSpan : (pendingIds[0] ?? null);
 
-    fetchPending().catch(console.error);
-    const interval = setInterval(() => {
-      void fetchPending();
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [selectedSpan]);
+  const resolveMutation = useMutation({
+    mutationFn: api.resolveApproval,
+    onSuccess: async () => {
+      setSelectedSpan(null);
+      setMockValue('{}');
+      await queryClient.invalidateQueries({ queryKey: queryKeys.hitlPending });
+    },
+  });
 
-  const handleResolve = async (action: 'approve' | 'reject') => {
-    if (!selectedSpan) return;
+  const handleResolve = (action: 'approve' | 'reject') => {
+    if (!activeSpan) return;
 
     let value = null;
     if (action === 'approve') {
@@ -46,24 +39,12 @@ export function HitlDashboard() {
       }
     }
 
-    try {
-      await fetch(apiUrl('/api/hitl/resolve'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          span_id: selectedSpan,
-          action,
-          value,
-          reason: rejectReason,
-        }),
-      });
-      setSelectedSpan(null);
-      setMockValue('{}');
-    } catch (err) {
-      console.error('Failed to resolve HITL', err);
-    }
+    resolveMutation.mutate({
+      span_id: activeSpan,
+      action,
+      value,
+      reason: rejectReason,
+    });
   };
 
   if (pendingIds.length === 0) return null;
@@ -94,7 +75,7 @@ export function HitlDashboard() {
             <div className="label-section">QUEUE</div>
             <div className="mt-2 space-y-2">
               {pendingIds.map((id) => {
-                const active = selectedSpan === id;
+                const active = activeSpan === id;
                 return (
                   <div
                     key={id}
@@ -119,11 +100,11 @@ export function HitlDashboard() {
           </div>
 
           {/* Detail */}
-          {selectedSpan && (
+          {activeSpan && (
             <div className="p-5">
               <div className="flex items-center gap-3">
                 <div className="flex-1">
-                  <div className="font-mono text-ink-hi">{selectedSpan}</div>
+                  <div className="font-mono text-ink-hi">{activeSpan}</div>
                   <div className="text-xs text-ink-dim">tool · awaiting approval</div>
                 </div>
                 <span className="rounded-chip border border-[rgba(251,191,36,0.25)] bg-[rgba(251,191,36,0.10)] px-2 py-1 text-xs text-warn">
@@ -142,7 +123,7 @@ export function HitlDashboard() {
 
               <div className="mt-4 flex items-center gap-2">
                 <button
-                  onClick={() => void handleResolve('approve')}
+                  onClick={() => handleResolve('approve')}
                   className="inline-flex items-center gap-1.5 rounded-pill bg-[#22c55e] px-4 py-1.5 font-semibold text-window shadow-[0_4px_14px_rgba(34,197,94,0.30)] transition-colors"
                 >
                   <Check className="h-4 w-4" aria-hidden="true" />
@@ -155,7 +136,7 @@ export function HitlDashboard() {
                   onChange={(e) => setRejectReason(e.target.value)}
                 />
                 <button
-                  onClick={() => void handleResolve('reject')}
+                  onClick={() => handleResolve('reject')}
                   className="inline-flex items-center gap-1.5 rounded-pill border border-[rgba(251,113,133,0.4)] bg-nav px-4 py-1.5 font-semibold text-error transition-colors"
                 >
                   <X className="h-4 w-4" aria-hidden="true" />

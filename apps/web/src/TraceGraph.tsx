@@ -11,7 +11,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
-import type { Span } from './TraceDetail';
+import type { Span } from './api';
 import { SpanKindBadge } from './IconSystem';
 import { spanKindColor } from './spanColors';
 

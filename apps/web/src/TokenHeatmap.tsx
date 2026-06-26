@@ -1,4 +1,4 @@
-import type { Span } from './TraceDetail';
+import type { Span } from './api';
 
 export function TokenHeatmap({ tokenUsage }: { tokenUsage: Span['token_usage'] }) {
   if (!tokenUsage) return null;

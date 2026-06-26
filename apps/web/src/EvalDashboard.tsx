@@ -1,41 +1,28 @@
-import { useState, useEffect } from 'react';
-import { apiUrl } from './api';
+import { useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useVirtualizer } from '@tanstack/react-virtual';
+import { api, queryKeys } from './api';
 import { StatusBadge } from './IconSystem';
 
-export interface EvalSummary {
-  trace_id: string;
-  span_id: string;
-  name: string;
-  start_time: number;
-  status: string;
-  attributes: Record<string, unknown>;
-}
-
 export function EvalDashboard({ onSelectTrace }: { onSelectTrace: (id: string) => void }) {
-  const [evals, setEvals] = useState<EvalSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const parentRef = useRef<HTMLDivElement | null>(null);
+  const {
+    data: evals = [],
+    isLoading,
+    error,
+  } = useQuery({
+    queryKey: queryKeys.evals,
+    queryFn: api.listEvals,
+  });
+  const virtualizer = useVirtualizer({
+    count: evals.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 54,
+    overscan: 10,
+  });
 
-  useEffect(() => {
-    fetch(apiUrl('/api/evals'))
-      .then((res) => {
-        if (!res.ok) throw new Error(`eval list request failed: ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
-        setEvals(Array.isArray(data) ? (data as EvalSummary[]) : []);
-        setError(null);
-        setLoading(false);
-      })
-      .catch((err: unknown) => {
-        console.error('Failed to fetch evals', err);
-        setError(err instanceof Error ? err.message : 'Failed to fetch evaluations');
-        setLoading(false);
-      });
-  }, []);
-
-  if (loading) return <div className="p-8 text-ink-dim">Loading evaluations...</div>;
-  if (error) return <div className="p-8 text-error">{error}</div>;
+  if (isLoading) return <div className="p-8 text-ink-dim">Loading evaluations...</div>;
+  if (error) return <div className="p-8 text-error">{error.message}</div>;
   if (evals.length === 0)
     return (
       <div className="p-8 text-ink-dim">No evaluations found. Run a local eval runner first.</div>
@@ -91,36 +78,45 @@ export function EvalDashboard({ onSelectTrace }: { onSelectTrace: (id: string) =
           <div className="label-th px-4 py-3">Trace ID</div>
           <div className="label-th px-4 py-3">Time</div>
         </div>
-        {evals.map((e) => {
-          const isPassed = e.attributes['eval.passed'] === true;
-          const rawScore = e.attributes['eval.score'];
-          const score = typeof rawScore === 'number' ? rawScore.toFixed(2) : '—';
-          return (
-            <div
-              key={e.span_id}
-              className="grid grid-cols-[1fr_110px_90px_220px_130px] items-center border-b border-line-row transition-colors hover:bg-[rgba(124,131,255,0.05)]"
-            >
-              <div className="px-4 py-3 font-medium text-ink-hi">{e.name}</div>
-              <div className="px-4 py-3">
-                <StatusBadge status={isPassed ? 'pass' : 'fail'} />
-              </div>
-              <div
-                className={`px-4 py-3 font-mono text-sm ${isPassed ? 'text-ink-hi' : 'text-error'}`}
-              >
-                {score}
-              </div>
-              <div
-                className="cursor-pointer truncate px-4 py-3 font-mono text-sm text-iris-text hover:underline"
-                onClick={() => onSelectTrace(e.trace_id)}
-              >
-                {e.trace_id}
-              </div>
-              <div className="px-4 py-3 text-sm text-ink-dim">
-                {new Date(e.start_time).toLocaleString()}
-              </div>
-            </div>
-          );
-        })}
+        <div ref={parentRef} className="max-h-[calc(100vh-330px)] overflow-auto">
+          <div className="relative" style={{ height: `${virtualizer.getTotalSize()}px` }}>
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const e = evals[virtualRow.index];
+              const isPassed = e.attributes['eval.passed'] === true;
+              const rawScore = e.attributes['eval.score'];
+              const score = typeof rawScore === 'number' ? rawScore.toFixed(2) : '—';
+              return (
+                <div
+                  key={e.span_id}
+                  className="absolute left-0 top-0 grid w-full grid-cols-[1fr_110px_90px_220px_130px] items-center border-b border-line-row transition-colors hover:bg-[rgba(124,131,255,0.05)]"
+                  style={{
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  <div className="px-4 py-3 font-medium text-ink-hi">{e.name}</div>
+                  <div className="px-4 py-3">
+                    <StatusBadge status={isPassed ? 'pass' : 'fail'} />
+                  </div>
+                  <div
+                    className={`px-4 py-3 font-mono text-sm ${isPassed ? 'text-ink-hi' : 'text-error'}`}
+                  >
+                    {score}
+                  </div>
+                  <div
+                    className="cursor-pointer truncate px-4 py-3 font-mono text-sm text-iris-text hover:underline"
+                    onClick={() => onSelectTrace(e.trace_id)}
+                  >
+                    {e.trace_id}
+                  </div>
+                  <div className="px-4 py-3 text-sm text-ink-dim">
+                    {new Date(e.start_time).toLocaleString()}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
