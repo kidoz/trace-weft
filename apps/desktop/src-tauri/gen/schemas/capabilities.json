@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Permissions for the main TraceWeft window: core defaults plus the custom title-bar drag region used by the React UI.","local":true,"windows":["main"],"permissions":["core:default","core:window:allow-start-dragging"]}}
