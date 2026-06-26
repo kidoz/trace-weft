@@ -9,6 +9,9 @@ repository.workspace = true
 keywords = ["observability", "tracing", "llm", "agents", "opentelemetry"]
 categories = ["development-tools::debugging"]
 
+[lints]
+workspace = true
+
 [features]
 default = ["sqlite"]
 # Forwarded to the recorder: a SQLite mirror alongside JSONL. Disable for a

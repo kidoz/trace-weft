@@ -7,6 +7,9 @@ description = "Axum API and query layer for TraceWeft (SQLite, Postgres, auth, O
 license.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 trace-weft-core = { version = "0.2.0", path = "../trace-weft-core" }
 trace-weft = { version = "0.2.0", path = "../trace-weft" }

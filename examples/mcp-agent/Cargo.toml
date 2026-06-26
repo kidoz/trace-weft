@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 publish = false
 
+[lints]
+workspace = true
+
 [dependencies]
 trace-weft = { version = "0.2.0", path = "../../crates/trace-weft" }
 trace-weft-mcp = { version = "0.2.0", path = "../../crates/trace-weft-mcp" }

@@ -12,10 +12,13 @@ lint: lint-rust lint-web
 check: check-rust check-web
 
 # Run all tests
-test: test-rust
+test: test-rust test-web
 
 # Build the entire project
 build: build-rust build-web
+
+# Supply-chain and dependency hygiene checks
+hygiene: deny machete
 
 # --- Rust Commands ---
 
@@ -33,7 +36,12 @@ check-rust:
 
 # Run Rust workspace tests
 test-rust:
-    cargo test --workspace --all-features
+    @if cargo nextest --version >/dev/null 2>&1; then \
+        cargo nextest run --workspace --all-features && cargo test --workspace --all-features --doc; \
+    else \
+        echo "cargo-nextest is not installed; falling back to cargo test."; \
+        cargo test --workspace --all-features; \
+    fi
 
 # Run the Postgres-backed e2e tests against the docker compose Postgres.
 # Start it first with: docker compose up -d postgres
@@ -45,6 +53,14 @@ test-pg:
 # Build Rust workspace
 build-rust:
     cargo build --workspace --all-features
+
+# Check Rust advisories, licenses, bans, and sources
+deny:
+    cargo deny check
+
+# Check for unused Rust dependencies
+machete:
+    cargo machete
 
 # --- Web (TypeScript/React) Commands ---
 
@@ -59,6 +75,14 @@ lint-web:
 # Check Web App (TypeScript compilation check)
 check-web:
     cd apps/web && npm run build
+
+# Run Web unit/component tests
+test-web:
+    cd apps/web && npm run test
+
+# Run Web Playwright smoke tests
+test-web-e2e:
+    cd apps/web && npm run test:e2e
 
 # Build Web App for production
 build-web:

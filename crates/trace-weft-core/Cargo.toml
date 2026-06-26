@@ -7,6 +7,9 @@ description = "Core IDs, span and event schemas, and redaction traits for TraceW
 license.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true

@@ -7,6 +7,9 @@ description = "OpenTelemetry export bridge for TraceWeft traces"
 license.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 trace-weft-core = { version = "0.2.0", path = "../trace-weft-core" }
 tokio.workspace = true

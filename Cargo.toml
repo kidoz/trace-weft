@@ -4,6 +4,22 @@ members = [
     "examples/*",
     "apps/desktop/src-tauri"
 ]
+default-members = [
+    "crates/trace-weft",
+    "crates/trace-weft-core",
+    "crates/trace-weft-macros",
+    "crates/trace-weft-recorder",
+    "crates/trace-weft-cli",
+    "crates/trace-weft-server",
+    "crates/trace-weft-ingest",
+    "crates/trace-weft-mcp",
+    "crates/trace-weft-openinference",
+    "crates/trace-weft-otel",
+    "examples/basic-agent",
+    "examples/eval-agent",
+    "examples/mcp-agent",
+    "apps/desktop/src-tauri",
+]
 resolver = "2"
 
 [workspace.package]
@@ -12,6 +28,17 @@ edition = "2024"
 rust-version = "1.96"
 license = "MIT"
 repository = "https://github.com/kidoz/trace-weft"
+
+[workspace.lints.rust]
+unsafe_code = "allow"
+missing_docs = "allow"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "warn"
+unwrap_used = "allow"
+expect_used = "allow"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }

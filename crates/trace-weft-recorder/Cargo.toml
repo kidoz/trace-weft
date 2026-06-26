@@ -7,6 +7,9 @@ description = "Local JSONL, SQLite, and blob trace recorder for TraceWeft"
 license.workspace = true
 repository.workspace = true
 
+[lints]
+workspace = true
+
 [features]
 default = ["sqlite"]
 # SQLite mirror of the JSONL stream. Disable for a pure local-JSONL recorder
