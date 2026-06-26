@@ -293,9 +293,11 @@ environment variables:
   defaults this **on** when no keys are configured; production `start_server`
   use defaults it **off**, rejecting unauthenticated requests with `401`.
 
-OTLP/HTTP JSON ingestion (`/v1/traces`) decodes payloads with the
+The `trace-weft-ingest` crate decodes OTLP/HTTP JSON payloads with the
 `opentelemetry-proto` types, preserving original trace/span/parent IDs and
-returning `400` for malformed bodies.
+returning `400` for malformed bodies. It is currently a library only — the dev
+server does **not** yet mount a `/v1/traces` route, so spans are ingested via
+`POST /api/v1/batch`.
 
 ## Development Checks
 
@@ -324,6 +326,6 @@ npm --prefix apps/web run build
 - `crates/trace-weft-recorder` - local JSONL/SQLite/blob recorder (`sqlite` feature, on by default)
 - `crates/trace-weft-ingest` - OTLP ingestion via `opentelemetry-proto`, preserving original IDs
 - `crates/trace-weft-server` - axum API, SQLite + Postgres query layer, API-key auth and tenant scoping
-- `crates/trace-weft-cli` - CLI: dev, import, export, replay
+- `crates/trace-weft-cli` - CLI: `dev` (starts the local API server); `import`/`export`/`replay` are planned
 - `apps/web` - React / TypeScript / Vite UI
 ```
