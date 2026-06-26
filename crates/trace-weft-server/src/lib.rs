@@ -92,9 +92,9 @@ pub async fn start_server_with_shutdown(
     let blob_store = Arc::new(storage::blob::LocalBlobStore::new(blob_dir));
 
     let trace_store: Arc<dyn TraceStore> = match &pool {
-        DbPool::Postgres(pg_pool) => Arc::new(storage::postgres::PostgresRecorder {
-            pool: pg_pool.clone(),
-        }),
+        DbPool::Postgres(pg_pool) => {
+            Arc::new(storage::postgres::PostgresRecorder::from_pool(pg_pool.clone()).await?)
+        }
         DbPool::Sqlite(sq_pool) => {
             Arc::new(trace_weft_recorder::sqlite::SqliteRecorder::from_pool(sq_pool.clone()).await?)
         }

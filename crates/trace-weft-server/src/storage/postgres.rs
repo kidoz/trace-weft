@@ -14,8 +14,18 @@ impl PostgresRecorder {
             .connect(db_url)
             .await?;
 
-        // Initialize schema (simplified for demo)
-        let q = sqlx::query(
+        Self::from_pool(pool).await
+    }
+
+    /// Wrap an existing pool, creating the schema on first use. The server
+    /// constructs the recorder from its own pool (so it shares connection
+    /// settings), so schema creation must live here rather than only in
+    /// [`new`] — otherwise a fresh Postgres has no tables.
+    pub async fn from_pool(pool: PgPool) -> Result<Self> {
+        // `raw_sql` runs the whole multi-statement block unprepared; `query`
+        // would prepare it and Postgres rejects multiple commands in one
+        // prepared statement ("cannot insert multiple commands…").
+        sqlx::raw_sql(
             r#"
             CREATE TABLE IF NOT EXISTS spans (
                 trace_id TEXT NOT NULL,
@@ -49,7 +59,7 @@ impl PostgresRecorder {
                 token_usage TEXT,
                 cost_estimate TEXT,
                 latency_ms BIGINT,
-                retry_count INTEGER,
+                retry_count BIGINT,
                 cache_hit BOOLEAN,
                 redaction_policy TEXT NOT NULL,
                 schema_version TEXT NOT NULL,
@@ -74,9 +84,9 @@ impl PostgresRecorder {
             CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_id);
             CREATE INDEX IF NOT EXISTS idx_events_parent_span_id ON events(parent_span_id);
             "#,
-        );
-        let q: Query<'_, Postgres, PgArguments> = q;
-        q.execute(&pool).await?;
+        )
+        .execute(&pool)
+        .await?;
 
         Ok(Self { pool })
     }
@@ -170,7 +180,7 @@ impl TraceStore for PostgresRecorder {
             .bind(token_usage)
             .bind(cost_estimate)
             .bind(span.latency_ms.map(|t| t as i64))
-            .bind(span.retry_count.map(|c| c as i32))
+            .bind(span.retry_count.map(|c| c as i64))
             .bind(span.cache_hit)
             .bind(redaction_policy)
             .bind(span.schema_version)
