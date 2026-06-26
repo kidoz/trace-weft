@@ -16,6 +16,5 @@ path = "src/main.rs"
 trace-weft-server = { version = "0.3.1", path = "../trace-weft-server" }
 tokio.workspace = true
 anyhow.workspace = true
-tracing.workspace = true
 tracing-subscriber.workspace = true
 clap.workspace = true

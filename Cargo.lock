@@ -5291,7 +5291,6 @@ dependencies = [
  "clap",
  "tokio",
  "trace-weft-server",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -5304,7 +5303,6 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "thiserror 2.0.18",
  "uuid",
 ]
 
@@ -5312,9 +5310,7 @@ dependencies = [
 name = "trace-weft-desktop"
 version = "0.3.1"
 dependencies = [
- "anyhow",
  "serde",
- "serde_json",
  "tauri",
  "tauri-build",
  "tokio",
@@ -5331,7 +5327,6 @@ dependencies = [
  "async-trait",
  "axum",
  "opentelemetry-proto",
- "serde",
  "serde_json",
  "tokio",
  "tower",
@@ -5354,10 +5349,8 @@ dependencies = [
 name = "trace-weft-mcp"
 version = "0.3.1"
 dependencies = [
- "anyhow",
  "serde",
  "serde_json",
- "tokio",
  "trace-weft",
  "trace-weft-core",
  "uuid",
@@ -5368,7 +5361,6 @@ name = "trace-weft-openinference"
 version = "0.3.1"
 dependencies = [
  "opentelemetry",
- "serde_json",
  "trace-weft-core",
 ]
 
@@ -5377,14 +5369,10 @@ name = "trace-weft-otel"
 version = "0.3.1"
 dependencies = [
  "anyhow",
- "async-trait",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "serde_json",
- "tokio",
  "trace-weft-core",
- "tracing",
  "uuid",
 ]
 
@@ -5398,11 +5386,8 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tempfile",
- "thiserror 2.0.18",
  "tokio",
  "trace-weft-core",
- "tracing",
- "uuid",
 ]
 
 [[package]]

@@ -16,7 +16,6 @@ trace-weft-recorder = { version = "0.3.1", path = "../trace-weft-recorder" }
 tokio.workspace = true
 anyhow.workspace = true
 axum.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 uuid.workspace = true
