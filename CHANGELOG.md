@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2026-06-26
+
+### Features
+
+- OTLP/HTTP JSON ingestion is now served at `POST /v1/traces` — payloads are decoded by `trace-weft-ingest` (original trace/span/parent IDs preserved, `400` for malformed bodies) and, like `/api/v1/batch`, the authenticated project is stamped onto every span before it is persisted. Resolves the 0.3.0 "OTLP is library-only" limitation.
+- The web UI accepts an API key — a header field stores an `Authorization: Bearer` token (empty keeps the local dev bypass) that is sent on every request, so the workbench can talk to an authenticated, project-scoped server. Resolves the 0.3.0 "web UI has no API-key entry" limitation.
+
+[0.3.1]: https://github.com/kidoz/trace-weft/compare/v0.3.0...v0.3.1
+
 ## [0.3.0] - 2026-06-26
 
 ### Added

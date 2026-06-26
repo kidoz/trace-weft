@@ -11,7 +11,7 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
-trace-weft-core = { version = "0.3.0", path = "../trace-weft-core" }
+trace-weft-core = { version = "0.3.1", path = "../trace-weft-core" }
 tokio.workspace = true
 anyhow.workspace = true
 opentelemetry.workspace = true
@@ -22,6 +22,6 @@ tracing.workspace = true
 async-trait = "0.1"
 
 [dev-dependencies]
-trace-weft-core = { version = "0.3.0", path = "../trace-weft-core", features = ["test-util"] }
+trace-weft-core = { version = "0.3.1", path = "../trace-weft-core", features = ["test-util"] }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
 uuid.workspace = true

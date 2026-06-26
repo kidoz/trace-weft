@@ -13,7 +13,7 @@ name = "trace-weft"
 path = "src/main.rs"
 
 [dependencies]
-trace-weft-server = { version = "0.3.0", path = "../trace-weft-server" }
+trace-weft-server = { version = "0.3.1", path = "../trace-weft-server" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
