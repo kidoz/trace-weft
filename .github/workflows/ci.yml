@@ -38,6 +38,11 @@ jobs:
   supply-chain:
     name: Supply Chain
     runs-on: ubuntu-latest
+    # cargo-deny runs in its own container and cargo-machete builds no code, so
+    # neither needs sccache. Clear the inherited wrapper to avoid invoking an
+    # sccache binary that isn't installed in this job.
+    env:
+      RUSTC_WRAPPER: ""
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
