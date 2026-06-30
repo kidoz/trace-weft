@@ -20,7 +20,7 @@
     }
   },
   "identifier": "com.traceweft.dev",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "productName": "TraceWeft",
   "bundle": {
     "icon": ["icons/icon.png"]
