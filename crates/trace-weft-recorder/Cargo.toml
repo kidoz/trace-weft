@@ -18,7 +18,7 @@ default = ["sqlite"]
 sqlite = ["dep:sqlx"]
 
 [dependencies]
-trace-weft-core = { version = "0.3.3", path = "../trace-weft-core" }
+trace-weft-core = { version = "0.3.4", path = "../trace-weft-core" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -28,4 +28,4 @@ async-trait = "0.1"
 
 [dev-dependencies]
 tempfile = "3"
-trace-weft-core = { version = "0.3.3", path = "../trace-weft-core", features = ["test-util"] }
+trace-weft-core = { version = "0.3.4", path = "../trace-weft-core", features = ["test-util"] }

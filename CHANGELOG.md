@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-07-01
+
+### Security
+
+- Updated `anyhow` to 1.0.103 to clear RUSTSEC-2026-0190, an unsoundness in
+  `Error::downcast_mut()` (use-after-context borrow violation) present in
+  1.0.102. The supply-chain CI gate denies the advisory, so the workspace now
+  pins the patched release.
+
+[0.3.4]: https://github.com/kidoz/trace-weft/compare/v0.3.3...v0.3.4
+
 ## [0.3.3] - 2026-07-01
 
 ### Fixed
