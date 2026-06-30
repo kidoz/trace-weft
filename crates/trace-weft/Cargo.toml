@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Rust-first, local-first observability and debugging toolkit for LLM agents"
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 keywords = ["observability", "tracing", "llm", "agents", "opentelemetry"]
 categories = ["development-tools::debugging"]
 
@@ -19,9 +20,9 @@ default = ["sqlite"]
 sqlite = ["trace-weft-recorder/sqlite"]
 
 [dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core" }
-trace-weft-recorder = { version = "0.3.2", path = "../trace-weft-recorder", default-features = false }
-trace-weft-macros = { version = "0.3.2", path = "../trace-weft-macros" }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core" }
+trace-weft-recorder = { version = "0.3.3", path = "../trace-weft-recorder", default-features = false }
+trace-weft-macros = { version = "0.3.3", path = "../trace-weft-macros" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

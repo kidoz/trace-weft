@@ -6,18 +6,19 @@ rust-version.workspace = true
 description = "OpenTelemetry export bridge for TraceWeft traces"
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 
 [lints]
 workspace = true
 
 [dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core" }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core" }
 anyhow.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk = { workspace = true }
 opentelemetry-otlp.workspace = true
 
 [dev-dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core", features = ["test-util"] }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core", features = ["test-util"] }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
 uuid.workspace = true

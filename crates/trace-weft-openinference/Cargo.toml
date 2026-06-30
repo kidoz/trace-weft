@@ -6,13 +6,14 @@ rust-version.workspace = true
 description = "OpenInference attribute compatibility for TraceWeft"
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 
 [lints]
 workspace = true
 
 [dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core" }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core" }
 opentelemetry.workspace = true
 
 [dev-dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core", features = ["test-util"] }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core", features = ["test-util"] }

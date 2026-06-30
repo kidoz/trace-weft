@@ -6,13 +6,14 @@ rust-version.workspace = true
 description = "Model Context Protocol trace-context propagation for TraceWeft"
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 
 [lints]
 workspace = true
 
 [dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core" }
-trace-weft = { version = "0.3.2", path = "../trace-weft" }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core" }
+trace-weft = { version = "0.3.3", path = "../trace-weft" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

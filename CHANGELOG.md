@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2026-07-01
+
+### Fixed
+
+- Published crates now carry a README on crates.io: every published crate
+  declares `readme = "../../README.md"` so the project overview renders on its
+  registry page.
+- The `trace-weft-server` crate now packages cleanly: the OpenAPI contract it
+  embeds was moved from the repo-root `schemas/api/` into the crate at
+  `openapi/trace-weft.openapi.json`, so `include_str!` resolves inside the
+  published tarball instead of reaching outside the package. The web API-type
+  generator reads the contract from its new location.
+
+[0.3.3]: https://github.com/kidoz/trace-weft/compare/v0.3.2...v0.3.3
+
 ## [0.3.2] - 2026-07-01
 
 ### Changed

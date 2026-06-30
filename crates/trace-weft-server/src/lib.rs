@@ -707,7 +707,7 @@ async fn get_trace_events(
 }
 
 async fn openapi_contract() -> Result<Json<serde_json::Value>, StatusCode> {
-    serde_json::from_str(include_str!("../../../schemas/api/trace-weft.openapi.json"))
+    serde_json::from_str(include_str!("../openapi/trace-weft.openapi.json"))
         .map(Json)
         .map_err(|e| {
             tracing::error!("embedded OpenAPI contract is invalid JSON: {e}");

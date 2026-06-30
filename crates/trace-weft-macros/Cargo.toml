@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Instrumentation macros for TraceWeft (agent, tool, llm_call)"
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 
 [lints]
 workspace = true

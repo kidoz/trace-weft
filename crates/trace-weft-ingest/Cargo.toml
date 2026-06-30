@@ -6,13 +6,14 @@ rust-version.workspace = true
 description = "OTLP trace ingestion for TraceWeft that preserves original span IDs"
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 
 [lints]
 workspace = true
 
 [dependencies]
-trace-weft-core = { version = "0.3.2", path = "../trace-weft-core" }
-trace-weft-recorder = { version = "0.3.2", path = "../trace-weft-recorder" }
+trace-weft-core = { version = "0.3.3", path = "../trace-weft-core" }
+trace-weft-recorder = { version = "0.3.3", path = "../trace-weft-recorder" }
 tokio.workspace = true
 anyhow.workspace = true
 axum.workspace = true
