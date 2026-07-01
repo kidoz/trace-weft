@@ -21,12 +21,12 @@ The local trace workbench (`trace-weft dev` plus the web UI):
 
 ## Install
 
-TraceWeft is not yet published to crates.io. Depend on it by git, pinning a
-revision for reproducible builds:
+TraceWeft is published on [crates.io](https://crates.io/crates/trace-weft). Add
+it to your project:
 
 ```toml
 [dependencies]
-trace-weft = { git = "https://github.com/kidoz/trace-weft", rev = "<commit-sha>" }
+trace-weft = "0.3"
 ```
 
 The SDK is `sqlite`-by-default (a SQLite mirror alongside the JSONL stream). For
@@ -34,13 +34,14 @@ a pure local-JSONL integrator that pulls no `sqlx`:
 
 ```toml
 [dependencies]
-trace-weft = { git = "https://github.com/kidoz/trace-weft", rev = "<commit-sha>", default-features = false }
+trace-weft = { version = "0.3", default-features = false }
 ```
 
-Requires Rust 1.96+ (edition 2024). Install the CLI from a checkout:
+Requires Rust 1.96+ (edition 2024). The `trace-weft` CLI is not published to
+crates.io; install it from the repository:
 
 ```bash
-cargo install --path crates/trace-weft-cli
+cargo install --git https://github.com/kidoz/trace-weft trace-weft-cli
 ```
 
 ## Quickstart
