@@ -48,8 +48,10 @@ export RUSTC_WRAPPER=sccache
 
 ## API Contract
 
-The local API contract lives at `schemas/api/trace-weft.openapi.json` and is also
-served by the server at `/api/openapi.json`.
+The local API contract lives at
+`crates/trace-weft-server/openapi/trace-weft.openapi.json` (embedded into the
+server crate so the published tarball builds) and is also served by the server
+at `/api/openapi.json`.
 
 Generate the React TypeScript API types after editing the contract:
 
