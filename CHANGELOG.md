@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-07-01
+
+### Documentation
+
+- The README now documents crates.io installation (`trace-weft = "0.3"`) instead
+  of the old git-dependency instructions, and installs the unpublished CLI from
+  the repository. Publishing this release makes the corrected README render on
+  the crates.io pages.
+- `DEVELOPMENT.md` points at the OpenAPI contract's relocated in-crate path
+  (`crates/trace-weft-server/openapi/trace-weft.openapi.json`).
+
+[0.3.5]: https://github.com/kidoz/trace-weft/compare/v0.3.4...v0.3.5
+
 ## [0.3.4] - 2026-07-01
 
 ### Security

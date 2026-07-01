@@ -8,7 +8,7 @@ publish = false
 workspace = true
 
 [dependencies]
-trace-weft = { version = "0.3.4", path = "../../crates/trace-weft" }
-trace-weft-mcp = { version = "0.3.4", path = "../../crates/trace-weft-mcp" }
+trace-weft = { version = "0.3.5", path = "../../crates/trace-weft" }
+trace-weft-mcp = { version = "0.3.5", path = "../../crates/trace-weft-mcp" }
 tokio = { workspace = true, features = ["full"] }
 anyhow.workspace = true

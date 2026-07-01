@@ -20,9 +20,9 @@ default = ["sqlite"]
 sqlite = ["trace-weft-recorder/sqlite"]
 
 [dependencies]
-trace-weft-core = { version = "0.3.4", path = "../trace-weft-core" }
-trace-weft-recorder = { version = "0.3.4", path = "../trace-weft-recorder", default-features = false }
-trace-weft-macros = { version = "0.3.4", path = "../trace-weft-macros" }
+trace-weft-core = { version = "0.3.5", path = "../trace-weft-core" }
+trace-weft-recorder = { version = "0.3.5", path = "../trace-weft-recorder", default-features = false }
+trace-weft-macros = { version = "0.3.5", path = "../trace-weft-macros" }
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

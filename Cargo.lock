@@ -224,7 +224,7 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "basic-agent"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "tokio",
@@ -1111,7 +1111,7 @@ dependencies = [
 
 [[package]]
 name = "eval-agent"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "serde_json",
@@ -2422,7 +2422,7 @@ checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "mcp-agent"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "tokio",
@@ -5267,7 +5267,7 @@ checksum = "8df9b6e13f2d32c91b9bd719c00d1958837bc7dec474d94952798cc8e69eeec3"
 
 [[package]]
 name = "trace-weft"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5285,7 +5285,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-cli"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "clap",
@@ -5296,7 +5296,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-core"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5308,7 +5308,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-desktop"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "tauri",
@@ -5321,7 +5321,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-ingest"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5338,7 +5338,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-macros"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5347,7 +5347,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-mcp"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "serde",
  "serde_json",
@@ -5358,7 +5358,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-openinference"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "opentelemetry",
  "trace-weft-core",
@@ -5366,7 +5366,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-otel"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "opentelemetry",
@@ -5378,7 +5378,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-recorder"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5392,7 +5392,7 @@ dependencies = [
 
 [[package]]
 name = "trace-weft-server"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
