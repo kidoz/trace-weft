@@ -39,7 +39,7 @@ function App() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-window text-ink-hi">
+    <div className="flex h-screen flex-col bg-window text-ink-hi">
       {/* Top navigation */}
       <header className="sticky top-0 z-20 flex h-[60px] shrink-0 items-center justify-between border-b border-line-inner bg-nav px-6">
         <div className="flex items-center gap-2.5">
@@ -62,7 +62,7 @@ function App() {
 
       <HitlDashboard />
 
-      <main className="flex-1 overflow-hidden">
+      <main className="min-h-0 flex-1 overflow-hidden">
         {diffTraceIds ? (
           <TraceDiff traceA={diffTraceIds[0]} traceB={diffTraceIds[1]} onBack={handleBack} />
         ) : selectedTraceId ? (

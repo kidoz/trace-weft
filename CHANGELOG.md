@@ -27,6 +27,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The token heatmap no longer crashes the trace view when a span's token
   usage omits the empty `breakdown` map (which the SDK skips when
   serializing).
+- The app shell now locks to the viewport (`h-screen`) instead of growing
+  with content, so the trace graph's fit-to-view centers within the visible
+  pane rather than an off-screen canvas that had to be scrolled to, and the
+  inspector scrolls internally as designed.
 
 ## [0.3.5] - 2026-07-01
 
