@@ -4,6 +4,19 @@ All notable changes to this project are documented in this file. The format is
 based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this
 project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `SpanBuilder::run_with` passes the closure a `SpanHandle` so response-derived
+  data — token usage, cost, cache status, extra attributes — can be recorded on
+  the span itself. Previously the builder's fields were frozen before the
+  closure ran, so spans around real LLM calls could never carry
+  `token_usage` / `cost_estimate` and the workbench's Input/Output/Cost tiles
+  and token heatmap stayed empty. Handle values are merged on success and
+  error, and take precedence over the builder's setters. The
+  `openrouter-agent` example now records usage and cost this way.
+
 ## [0.3.5] - 2026-07-01
 
 ### Documentation

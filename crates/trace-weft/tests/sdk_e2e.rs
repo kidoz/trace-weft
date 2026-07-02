@@ -267,6 +267,78 @@ async fn events_auto_link_to_ambient_span() {
 }
 
 #[tokio::test]
+async fn run_with_enriches_span_from_inside_closure() {
+    store();
+    let value = build_llm_call("e2e_run_with_enrich")
+        .provider("openrouter")
+        .run_with(|span| async move {
+            // Simulates usage/cost that only exist on the provider response.
+            span.token_usage(TokenUsage {
+                input: 1008,
+                output: 148,
+                reasoning: None,
+                breakdown: Default::default(),
+            });
+            span.cost(CostEstimate {
+                currency: "USD".into(),
+                amount: 0.001748,
+            });
+            span.cache_hit(false);
+            span.attribute("finish_reason", serde_json::json!("stop"));
+            Ok::<i32, String>(7)
+        })
+        .await;
+    assert_eq!(value, Ok(7));
+
+    let spans = recorded_spans_named("e2e_run_with_enrich");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    assert_eq!(span.status, SpanStatus::Ok);
+    let usage = span.token_usage.as_ref().expect("usage set via handle");
+    assert_eq!(usage.input, 1008);
+    assert_eq!(usage.output, 148);
+    let cost = span.cost_estimate.as_ref().expect("cost set via handle");
+    assert!((cost.amount - 0.001748).abs() < f64::EPSILON);
+    assert_eq!(span.cache_hit, Some(false));
+    assert_eq!(
+        span.attributes.get("finish_reason"),
+        Some(&serde_json::json!("stop"))
+    );
+}
+
+#[tokio::test]
+async fn run_with_applies_enrichment_on_error_and_overrides_setters() {
+    store();
+    let result = build_llm_call("e2e_run_with_err")
+        .token_usage(TokenUsage {
+            input: 1,
+            output: 1,
+            reasoning: None,
+            breakdown: Default::default(),
+        })
+        .run_with(|span| async move {
+            // Partial usage reported before the call failed must survive, and
+            // must win over the builder's pre-set value.
+            span.token_usage(TokenUsage {
+                input: 500,
+                output: 0,
+                reasoning: None,
+                breakdown: Default::default(),
+            });
+            Err::<(), String>("upstream timeout".to_string())
+        })
+        .await;
+    assert!(result.is_err());
+
+    let spans = recorded_spans_named("e2e_run_with_err");
+    assert_eq!(spans.len(), 1);
+    let span = &spans[0];
+    assert_eq!(span.status, SpanStatus::Error);
+    let usage = span.token_usage.as_ref().expect("usage kept on error");
+    assert_eq!(usage.input, 500);
+}
+
+#[tokio::test]
 async fn run_infallible_records_ok_span_for_non_result_closure() {
     store();
     let value = build_agent("e2e_infallible")

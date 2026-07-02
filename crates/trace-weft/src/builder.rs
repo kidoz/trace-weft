@@ -1,5 +1,6 @@
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use trace_weft_core::{
     BlobRef, CapturePolicy, CostEstimate, RunId, SpanId, SpanRecord, SpanStatus, TokenUsage,
     TraceId, TraceWeftSpanKind,
@@ -15,6 +16,60 @@ pub struct SpanBuilder {
 struct PendingCapture {
     label: String,
     value: serde_json::Value,
+}
+
+/// A cloneable handle passed to [`SpanBuilder::run_with`] so the closure can
+/// enrich the span with data that only exists once the work has produced a
+/// response — token usage, cost, cache status, extra attributes. Everything
+/// set on the handle is merged into the span when the closure finishes,
+/// whether it succeeded or failed.
+#[derive(Clone, Default)]
+pub struct SpanHandle {
+    patch: Arc<Mutex<SpanPatch>>,
+}
+
+#[derive(Default)]
+struct SpanPatch {
+    token_usage: Option<TokenUsage>,
+    cost: Option<CostEstimate>,
+    cache_hit: Option<bool>,
+    attributes: HashMap<String, serde_json::Value>,
+}
+
+impl SpanHandle {
+    pub fn token_usage(&self, usage: TokenUsage) {
+        self.patch.lock().unwrap().token_usage = Some(usage);
+    }
+
+    pub fn cost(&self, cost: CostEstimate) {
+        self.patch.lock().unwrap().cost = Some(cost);
+    }
+
+    pub fn cache_hit(&self, hit: bool) {
+        self.patch.lock().unwrap().cache_hit = Some(hit);
+    }
+
+    pub fn attribute(&self, key: impl Into<String>, value: serde_json::Value) {
+        self.patch
+            .lock()
+            .unwrap()
+            .attributes
+            .insert(key.into(), value);
+    }
+
+    fn apply_to(&self, span: &mut SpanRecord) {
+        let mut patch = self.patch.lock().unwrap();
+        if let Some(usage) = patch.token_usage.take() {
+            span.token_usage = Some(usage);
+        }
+        if let Some(cost) = patch.cost.take() {
+            span.cost_estimate = Some(cost);
+        }
+        if let Some(hit) = patch.cache_hit.take() {
+            span.cache_hit = Some(hit);
+        }
+        span.attributes.extend(patch.attributes.drain());
+    }
 }
 
 impl SpanBuilder {
@@ -200,9 +255,24 @@ impl SpanBuilder {
         }
     }
 
-    pub async fn run<F, Fut, T, E>(mut self, f: F) -> Result<T, E>
+    pub async fn run<F, Fut, T, E>(self, f: F) -> Result<T, E>
     where
         F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<T, E>>,
+        E: std::fmt::Debug + std::fmt::Display + 'static,
+        T: serde::de::DeserializeOwned,
+    {
+        self.run_with(|_| f()).await
+    }
+
+    /// Like [`run`](Self::run), but passes the closure a [`SpanHandle`] so it
+    /// can enrich the span with response-derived data (token usage, cost,
+    /// cache status, attributes) that does not exist until the work completes.
+    /// Handle values are merged into the span before it is recorded, on both
+    /// success and error, and take precedence over the builder's setters.
+    pub async fn run_with<F, Fut, T, E>(mut self, f: F) -> Result<T, E>
+    where
+        F: FnOnce(SpanHandle) -> Fut,
         Fut: std::future::Future<Output = Result<T, E>>,
         E: std::fmt::Debug + std::fmt::Display + 'static,
         T: serde::de::DeserializeOwned,
@@ -230,7 +300,8 @@ impl SpanBuilder {
 
         // Install this span as the ambient parent for spans created inside `f`.
         let ctx = crate::context::SpanContext::of(&span);
-        let result = crate::context::scope_current(ctx, f()).await;
+        let handle = SpanHandle::default();
+        let result = crate::context::scope_current(ctx, f(handle.clone())).await;
         span.end_time = Some(
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -238,6 +309,7 @@ impl SpanBuilder {
                 .as_millis() as u64,
         );
         span.latency_ms = Some(span.end_time.unwrap() - span.start_time);
+        handle.apply_to(&mut span);
 
         match &result {
             Ok(_) => {

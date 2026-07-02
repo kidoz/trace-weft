@@ -7,7 +7,7 @@ pub mod hitl;
 pub mod replay;
 
 pub use builder::{
-    SpanBuilder, agent as build_agent, llm_call as build_llm_call, tool as build_tool,
+    SpanBuilder, SpanHandle, agent as build_agent, llm_call as build_llm_call, tool as build_tool,
 };
 pub use capture::{
     CaptureConfig, capture_enabled, capture_json, capture_policy, init_capture, redact_text,

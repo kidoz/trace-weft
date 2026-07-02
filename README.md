@@ -130,6 +130,34 @@ Builder setters cover the high-value `SpanRecord` fields: `.provider()`,
 `.output_ref()`, `.token_usage()`, `.cost()`, `.cache_hit()`,
 `.retrieval(query_hash, doc_refs)`, `.attribute(k, v)`, `.attributes(map)`.
 
+### Response-derived fields: `run_with`
+
+Token usage, cost, and cache status usually only exist on the provider's
+response — after the builder's setters have run. `run_with` passes the closure
+a `SpanHandle`; whatever the closure sets on it is merged into the span when
+the closure finishes (on success *and* error), taking precedence over the
+builder's values:
+
+```rust
+let response = build_llm_call("chat_completion")
+    .provider("openrouter")
+    .model(&model)
+    .run_with(|span| async move {
+        let response = client.complete(&request).await?;
+        span.token_usage(TokenUsage {
+            input: response.usage.prompt_tokens,
+            output: response.usage.completion_tokens,
+            reasoning: None,
+            breakdown: Default::default(),
+        });
+        span.cost(CostEstimate { currency: "USD".into(), amount: response.usage.cost });
+        Ok::<_, anyhow::Error>(response)
+    })
+    .await?;
+```
+
+See `examples/openrouter-agent` for this pattern against a live provider.
+
 ### Wrapping an `LlmClient` / `Tool`
 
 Wrap each trait method body in a builder call — the span kind matches the role:

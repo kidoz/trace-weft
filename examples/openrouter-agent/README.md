@@ -9,11 +9,12 @@ the SDK the way a production agent would:
 - **`#[agent]` / `#[tool]` macros** — the agent loop and both tools
   (`calculator`, `project_facts`) form an auto-parented span tree with
   argument/return capture.
-- **`build_llm_call` around a live HTTP call** — provider, model, and input
-  messages are set up front; token usage and credit cost only exist on the
-  response, so they are recorded as an `LlmCall` event that auto-links to the
-  same span (the request sets `"usage": {"include": true}` so OpenRouter
-  reports cost).
+- **`build_llm_call` + `run_with` around a live HTTP call** — provider, model,
+  and input messages are set up front; token usage and credit cost only exist
+  on the response, so the closure reports them through the `SpanHandle` and
+  they land on the span itself, populating the workbench's Input/Output/Cost
+  tiles and token heatmap (the request sets `"usage": {"include": true}` so
+  OpenRouter reports cost).
 - **`Retry` events** — transient failures (429/5xx, transport errors) back off
   and record a `Retry` event per attempt.
 - **`Budget` / `Termination` events** — a token budget is checked before every
@@ -51,5 +52,6 @@ npm --prefix apps/web run dev   # then open http://localhost:5173
 ```
 
 You should see one `research_agent` span with a `chat_completion` LLM-call
-span per step (each carrying a `usage` event with tokens and cost), tool spans
-for `calculator` / `project_facts`, and `budget_check` events between steps.
+span per step (each carrying token usage and cost in the inspector), tool
+spans for `calculator` / `project_facts`, and `budget_check` events between
+steps.

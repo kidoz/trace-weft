@@ -3,9 +3,9 @@
 //!
 //! What it demonstrates on top of `basic-agent`:
 //! - `#[agent]` / `#[tool]` macros forming a real span tree around a live LLM;
-//! - `build_llm_call` wrapping a real HTTP call, with provider/model/input
-//!   capture set up front and response-derived token usage + cost recorded as
-//!   an event linked to the same span;
+//! - `build_llm_call` + `run_with` wrapping a real HTTP call, with
+//!   provider/model/input capture set up front and response-derived token
+//!   usage + cost reported through the `SpanHandle` onto the span itself;
 //! - `Retry` events around transient HTTP failures (429/5xx) with backoff;
 //! - a token budget enforced across the agent loop with `Budget` events and a
 //!   `Termination` event when the loop gives up.
@@ -24,7 +24,8 @@ use anyhow::{Context, anyhow, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use trace_weft::{
-    CapturePolicy, EventKind, LocalConfig, agent, build_llm_call, event, init_local, tool,
+    CapturePolicy, CostEstimate, EventKind, LocalConfig, TokenUsage, agent, build_llm_call, event,
+    init_local, tool,
 };
 
 const OPENROUTER_URL: &str = "https://openrouter.ai/api/v1/chat/completions";
@@ -132,8 +133,9 @@ impl OpenRouterClient {
     }
 
     /// One chat-completion turn, recorded as an `LlmCall` span. Token usage and
-    /// cost only exist on the response - after the builder's fields are frozen -
-    /// so they are recorded as an event that auto-links to this span.
+    /// cost only exist on the response, so the closure reports them through the
+    /// `SpanHandle` and `run_with` merges them into the span when the call
+    /// finishes.
     async fn chat(&self, messages: &[ChatMessage]) -> anyhow::Result<ChatResponse> {
         let body = json!({
             "model": self.model,
@@ -147,16 +149,21 @@ impl OpenRouterClient {
             .model(&self.model)
             .input_ref("messages", &messages)
             .attribute("message_count", json!(messages.len()))
-            .run(|| async {
+            .run_with(|span| async move {
                 let response = self.post_with_retry(&body).await?;
                 if let Some(usage) = &response.usage {
-                    let mut usage_event = event(EventKind::LlmCall, "usage")
-                        .attribute("input_tokens", json!(usage.prompt_tokens))
-                        .attribute("output_tokens", json!(usage.completion_tokens));
+                    span.token_usage(TokenUsage {
+                        input: usage.prompt_tokens,
+                        output: usage.completion_tokens,
+                        reasoning: None,
+                        breakdown: Default::default(),
+                    });
                     if let Some(cost) = usage.cost {
-                        usage_event = usage_event.attribute("cost_usd", json!(cost));
+                        span.cost(CostEstimate {
+                            currency: "USD".into(),
+                            amount: cost,
+                        });
                     }
-                    usage_event.record().await;
                 }
                 Ok::<_, anyhow::Error>(response)
             })
