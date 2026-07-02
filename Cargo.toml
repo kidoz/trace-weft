@@ -18,6 +18,7 @@ default-members = [
     "examples/basic-agent",
     "examples/eval-agent",
     "examples/mcp-agent",
+    "examples/openrouter-agent",
     "apps/desktop/src-tauri",
 ]
 resolver = "2"
