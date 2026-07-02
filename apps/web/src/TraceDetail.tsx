@@ -100,6 +100,40 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
     overscan: 10,
   });
 
+  // Usage and cost live on LLM-call spans; agent/root spans carry none of
+  // their own. Roll both up over the selected span's subtree so selecting the
+  // root shows the whole run's totals and leaf spans show their own values.
+  const rollup = useMemo(() => {
+    if (!selectedSpan) return null;
+    const children = new Map<string, Span[]>();
+    spans.forEach((span) => {
+      if (!span.parent_span_id) return;
+      const siblings = children.get(span.parent_span_id) ?? [];
+      siblings.push(span);
+      children.set(span.parent_span_id, siblings);
+    });
+    let input = 0;
+    let output = 0;
+    let cost = 0;
+    let hasTokens = false;
+    let hasCost = false;
+    const stack = [selectedSpan];
+    while (stack.length > 0) {
+      const span = stack.pop()!;
+      if (span.token_usage) {
+        hasTokens = true;
+        input += span.token_usage.input;
+        output += span.token_usage.output;
+      }
+      if (span.cost_estimate) {
+        hasCost = true;
+        cost += span.cost_estimate.amount;
+      }
+      stack.push(...(children.get(span.span_id) ?? []));
+    }
+    return { input, output, cost, hasTokens, hasCost };
+  }, [selectedSpan, spans]);
+
   if (spansQuery.isLoading || eventsQuery.isLoading) {
     return <div className="p-8 text-ink-dim">Loading spans...</div>;
   }
@@ -122,8 +156,6 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
     </button>
   );
 
-  const cost = selectedSpan?.cost_estimate?.amount;
-  const tokens = selectedSpan?.token_usage;
   const selectedBlobRefs = spanBlobRefs(selectedSpan);
   const traceStart = Number.isFinite(window.min) ? window.min : 0;
   const traceEnd = traceStart + window.total;
@@ -288,11 +320,17 @@ export function TraceDetail({ traceId, onBack }: { traceId: string; onBack: () =
             <>
               {/* Stat cards */}
               <div className="mb-4 grid grid-cols-3 gap-2">
-                <StatCard label="Input" value={tokens ? tokens.input.toLocaleString() : '—'} />
-                <StatCard label="Output" value={tokens ? tokens.output.toLocaleString() : '—'} />
+                <StatCard
+                  label="Input"
+                  value={rollup?.hasTokens ? rollup.input.toLocaleString() : '—'}
+                />
+                <StatCard
+                  label="Output"
+                  value={rollup?.hasTokens ? rollup.output.toLocaleString() : '—'}
+                />
                 <StatCard
                   label="Cost"
-                  value={cost != null ? `$${cost}` : '—'}
+                  value={rollup?.hasCost ? `$${Number(rollup.cost.toFixed(6))}` : '—'}
                   accent="text-iris-text"
                 />
               </div>

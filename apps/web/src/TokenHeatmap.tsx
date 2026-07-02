@@ -9,8 +9,10 @@ export function TokenHeatmap({ tokenUsage }: { tokenUsage: Span['token_usage'] }
   const inputPct = (tokenUsage.input / total) * 100;
   const outputPct = (tokenUsage.output / total) * 100;
 
-  // Render breakdowns if available
-  const hasBreakdown = Object.keys(tokenUsage.breakdown).length > 0;
+  // Render breakdowns if available. The SDK omits `breakdown` entirely when
+  // it is empty, so it may be missing from the payload.
+  const breakdown = tokenUsage.breakdown ?? {};
+  const hasBreakdown = Object.keys(breakdown).length > 0;
 
   return (
     <div className="mb-6">
@@ -44,7 +46,7 @@ export function TokenHeatmap({ tokenUsage }: { tokenUsage: Span['token_usage'] }
           <div className="mt-4 border-t border-line-inner pt-3">
             <h4 className="label-section mb-2">Breakdown</h4>
             <div className="grid grid-cols-2 gap-2 text-xs">
-              {Object.entries(tokenUsage.breakdown).map(([key, val]) => (
+              {Object.entries(breakdown).map(([key, val]) => (
                 <div
                   key={key}
                   className="flex justify-between rounded-chip border border-line-inner bg-panel-2 p-1.5"

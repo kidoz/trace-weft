@@ -17,6 +17,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   error, and take precedence over the builder's setters. The
   `openrouter-agent` example now records usage and cost this way.
 
+### Fixed
+
+- The web UI no longer draws a fake macOS title bar above the native one in
+  the desktop app.
+- The inspector's Input/Output/Cost tiles roll up token usage and cost across
+  the selected span's subtree, so the root agent span shows the run's totals
+  instead of dashes.
+- The token heatmap no longer crashes the trace view when a span's token
+  usage omits the empty `breakdown` map (which the SDK skips when
+  serializing).
+
 ## [0.3.5] - 2026-07-01
 
 ### Documentation
