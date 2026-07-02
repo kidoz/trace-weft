@@ -64,6 +64,10 @@ machete:
 
 # --- Web (TypeScript/React) Commands ---
 
+# Install Web App dependencies
+install-web:
+    cd apps/web && npm install
+
 # Format Web App using Prettier
 format-web:
     cd apps/web && npm run format
@@ -91,7 +95,7 @@ build-web:
 # --- Desktop (Tauri) Commands ---
 
 # Run the Desktop App in Development Mode
-dev-desktop:
+dev-desktop: install-web
     cd apps/desktop/src-tauri && TRACE_WEFT_DEV_DIR=../../../.trace-weft npm --prefix ../../web exec -- tauri dev
 
 # Build the Desktop App for production
