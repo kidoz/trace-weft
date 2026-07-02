@@ -73,6 +73,12 @@ export function TraceGraph({
       return {
         id: span.span_id,
         position: { x: 0, y: 0 }, // computed by dagre
+        // Explicit dimensions (also assumed by the dagre layout). Without
+        // them the MiniMap renders nothing: it reads dimensions off the user
+        // node object, and in controlled mode measured sizes are never
+        // written back onto it.
+        width: nodeWidth,
+        height: nodeHeight,
         data: {
           label: (
             <div

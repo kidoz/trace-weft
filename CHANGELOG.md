@@ -31,6 +31,9 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with content, so the trace graph's fit-to-view centers within the visible
   pane rather than an off-screen canvas that had to be scrolled to, and the
   inspector scrolls internally as designed.
+- The trace graph's mini map is no longer empty: graph nodes now declare the
+  explicit width/height the dagre layout already assumes, which the React
+  Flow MiniMap requires to render node rectangles in controlled mode.
 
 ## [0.3.5] - 2026-07-01
 
