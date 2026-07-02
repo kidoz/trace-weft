@@ -299,6 +299,34 @@ The UI's API base is `import.meta.env.VITE_API_BASE` (empty by default → same
 -origin `/api`, which the Vite dev server proxies); the desktop build sets it to
 the embedded server's `http://127.0.0.1:3000`.
 
+### Where traces are written
+
+The paths in `LocalConfig` are resolved by the **traced application's process**:
+a relative path like `./.trace-weft/traces.jsonl` lands in whatever directory
+the agent runs from, so each project keeps its own isolated `.trace-weft/`
+store. There is no global store.
+
+To inspect traces produced by an agent in another project:
+
+1. **Run the workbench from that project's root:**
+
+   ```bash
+   cd ~/projects/my-bot && trace-weft dev
+   ```
+
+   The default `--db-path` (`./.trace-weft/traces.sqlite`) resolves against
+   the current working directory.
+
+2. **Point at the database explicitly:**
+
+   ```bash
+   trace-weft dev --db-path ~/projects/my-bot/.trace-weft/traces.sqlite
+   ```
+
+   The blob directory defaults to `blobs` next to the database, so captured
+   content (prompts, tool outputs) resolves without further flags. If the
+   blobs live elsewhere, pass `--blob-dir /path/to/blobs`.
+
 ## Server: storage backends and authentication
 
 The server query endpoints (`/api/traces`, `/api/traces/{id}`, `/api/evals`)
