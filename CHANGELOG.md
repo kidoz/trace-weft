@@ -8,6 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `trace-weft dev` accepts `--blob-dir` and defaults it to the `blobs`
+  directory next to the database instead of a hardcoded CWD-relative
+  `./.trace-weft/blobs`. Opening another project's store with `--db-path`
+  alone now serves captured content (prompts, tool outputs); previously blob
+  lookups 404ed and content previews appeared broken unless the CLI was
+  launched from that project's root.
+
 - `SpanBuilder::run_with` passes the closure a `SpanHandle` so response-derived
   data — token usage, cost, cache status, extra attributes — can be recorded on
   the span itself. Previously the builder's fields were frozen before the

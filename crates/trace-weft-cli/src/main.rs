@@ -20,6 +20,12 @@ enum Commands {
         /// Path to the local sqlite database
         #[arg(short, long, default_value = "./.trace-weft/traces.sqlite")]
         db_path: PathBuf,
+
+        /// Directory holding captured content blobs. Defaults to `blobs`
+        /// next to the database, so `--db-path` alone is enough to open
+        /// another project's store.
+        #[arg(short, long)]
+        blob_dir: Option<PathBuf>,
     },
 }
 
@@ -30,11 +36,21 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Dev { port, db_path } => {
+        Commands::Dev {
+            port,
+            db_path,
+            blob_dir,
+        } => {
             println!("Starting TraceWeft local server on port {}...", port);
             println!("Reading traces from: {}", db_path.display());
 
-            let blob_dir = PathBuf::from("./.trace-weft/blobs");
+            let blob_dir = blob_dir.clone().unwrap_or_else(|| {
+                db_path
+                    .parent()
+                    .map_or_else(|| PathBuf::from("."), PathBuf::from)
+                    .join("blobs")
+            });
+            println!("Reading blobs from: {}", blob_dir.display());
             // `dev` is the local-first command: the auth bypass defaults on when
             // no keys are configured (set TRACE_WEFT_API_KEYS to enforce auth).
             trace_weft_server::start_dev_server(&db_path.to_string_lossy(), *port, blob_dir)
