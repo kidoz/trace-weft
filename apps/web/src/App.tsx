@@ -40,17 +40,6 @@ function App() {
 
   return (
     <div className="flex min-h-screen flex-col bg-window text-ink-hi">
-      {/* Desktop title bar (Tauri). Harmless in the web build. */}
-      <div data-tauri-drag-region className="flex h-[38px] shrink-0 items-center bg-titlebar px-4">
-        <div className="flex items-center gap-2">
-          <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
-          <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
-          <span className="h-3 w-3 rounded-full bg-[#28c840]" />
-        </div>
-        <div className="flex-1 text-center text-xs font-medium text-ink-dim">TraceWeft</div>
-        <div className="w-[52px]" />
-      </div>
-
       {/* Top navigation */}
       <header className="sticky top-0 z-20 flex h-[60px] shrink-0 items-center justify-between border-b border-line-inner bg-nav px-6">
         <div className="flex items-center gap-2.5">

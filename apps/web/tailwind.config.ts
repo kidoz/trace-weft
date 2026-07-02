@@ -9,7 +9,6 @@ export default {
       colors: {
         // Surfaces (back-to-front)
         window: '#0b0d11',
-        titlebar: '#14161b',
         nav: '#0e1015',
         surface: '#0c0e12',
         panel: { DEFAULT: '#14171d', 2: '#13161b' },
